@@ -14,28 +14,22 @@ const MJMAX = 0
 const MKMAX = 0
 
 var (
-	p                [MIMAX][MJMAX][MKMAX]float32
-	a                [4][MIMAX][MJMAX][MKMAX]float32
-	b                [3][MIMAX][MJMAX][MKMAX]float32
-	c                [3][MIMAX][MJMAX][MKMAX]float32
-	bnd              [MIMAX][MJMAX][MKMAX]float32
-	wrk1             [MIMAX][MJMAX][MKMAX]float32
-	wrk2             [MIMAX][MJMAX][MKMAX]float32
+	p                = make([][][]float32, MIMAX, MIMAX)
+	a                = make([][][][]float32, 4, 4)
+	b                = make([][][][]float32, 3, 3)
+	c                = make([][][][]float32, 3, 3)
+	bnd              = make([][][]float32, MIMAX, MIMAX)
+	wrk1             = make([][][]float32, MIMAX, MIMAX)
+	wrk2             = make([][][]float32, MIMAX, MIMAX)
 	imax, jmax, kmax int
 	omega            float32
 	concurrency      = 8
-	copyConcurrency  = concurrency
 )
 
 func init() {
 	if len(os.Args) > 1 {
 		if num, err := strconv.Atoi(os.Args[1]); err == nil && num > 0 {
 			concurrency = num
-		}
-	}
-	if len(os.Args) > 2 {
-		if num, err := strconv.Atoi(os.Args[2]); err == nil && num > 0 {
-			copyConcurrency = num
 		}
 	}
 	fmt.Printf("Max Goroutine: %d\n", concurrency)
@@ -96,6 +90,64 @@ func main() {
 
 func initmt() {
 	var i, j, k int
+
+	for i = 0; i < 4; i++ {
+		a[i] = make([][][]float32, MIMAX, MIMAX)
+	}
+
+	for i = 0; i < 3; i++ {
+		b[i] = make([][][]float32, MIMAX, MIMAX)
+		c[i] = make([][][]float32, MIMAX, MIMAX)
+	}
+
+	for i = 0; i < MIMAX; i++ {
+		a[0][i] = make([][]float32, MJMAX, MJMAX)
+		a[1][i] = make([][]float32, MJMAX, MJMAX)
+		a[2][i] = make([][]float32, MJMAX, MJMAX)
+		a[3][i] = make([][]float32, MJMAX, MJMAX)
+		b[0][i] = make([][]float32, MJMAX, MJMAX)
+		b[1][i] = make([][]float32, MJMAX, MJMAX)
+		b[2][i] = make([][]float32, MJMAX, MJMAX)
+		c[0][i] = make([][]float32, MJMAX, MJMAX)
+		c[1][i] = make([][]float32, MJMAX, MJMAX)
+		c[2][i] = make([][]float32, MJMAX, MJMAX)
+		p[i] = make([][]float32, MJMAX, MJMAX)
+		wrk1[i] = make([][]float32, MJMAX, MJMAX)
+		bnd[i] = make([][]float32, MJMAX, MJMAX)
+		wrk2[i] = make([][]float32, MJMAX, MJMAX)
+		for j = 0; j < MJMAX; j++ {
+			a[0][i][j] = make([]float32, MKMAX, MKMAX)
+			a[1][i][j] = make([]float32, MKMAX, MKMAX)
+			a[2][i][j] = make([]float32, MKMAX, MKMAX)
+			a[3][i][j] = make([]float32, MKMAX, MKMAX)
+			b[0][i][j] = make([]float32, MKMAX, MKMAX)
+			b[1][i][j] = make([]float32, MKMAX, MKMAX)
+			b[2][i][j] = make([]float32, MKMAX, MKMAX)
+			c[0][i][j] = make([]float32, MKMAX, MKMAX)
+			c[1][i][j] = make([]float32, MKMAX, MKMAX)
+			c[2][i][j] = make([]float32, MKMAX, MKMAX)
+			p[i][j] = make([]float32, MKMAX, MKMAX)
+			wrk1[i][j] = make([]float32, MKMAX, MKMAX)
+			bnd[i][j] = make([]float32, MKMAX, MKMAX)
+			wrk2[i][j] = make([]float32, MKMAX, MKMAX)
+
+			for k = 0; k < MKMAX; k++ {
+				a[0][i][j][k] = 0.0
+				a[1][i][j][k] = 0.0
+				a[2][i][j][k] = 0.0
+				a[3][i][j][k] = 0.0
+				b[0][i][j][k] = 0.0
+				b[1][i][j][k] = 0.0
+				b[2][i][j][k] = 0.0
+				c[0][i][j][k] = 0.0
+				c[1][i][j][k] = 0.0
+				c[2][i][j][k] = 0.0
+				p[i][j][k] = 0.0
+				wrk1[i][j][k] = 0.0
+				bnd[i][j][k] = 0.0
+			}
+		}
+	}
 
 	for i = 0; i < imax; i++ {
 		for j = 0; j < jmax; j++ {
@@ -167,24 +219,13 @@ func jacobi(nn int) float32 {
 		}
 		ws.Wait()
 
-		semaphore = make(chan struct{}, copyConcurrency)
 		for i := 1; i < imax-1; i++ {
-			ws.Add(1)
-			semaphore <- struct{}{}
-			go func(i int) {
-				go func() {
-					<- semaphore
-					ws.Done()
-				}()
-
-				for j := 1; j < jmax-1; j++ {
-					for k := 1; k < kmax-1; k++ {
-						p[i][j][k] = wrk2[i][j][k]
-					}
+			for j := 1; j < jmax-1; j++ {
+				for k := 1; k < kmax-1; k++ {
+					p[i][j][k] = wrk2[i][j][k]
 				}
-			}(i)
+			}
 		}
-		ws.Wait()
 	}
 
 	return gosa
