@@ -2,6 +2,9 @@ package main
 
 import (
 	"fmt"
+	"os"
+	"strconv"
+	"sync"
 	"time"
 )
 
@@ -20,7 +23,23 @@ var (
 	wrk2             [MIMAX][MJMAX][MKMAX]float32
 	imax, jmax, kmax int
 	omega            float32
+	concurrency      = 8
+	copyConcurrency  = concurrency
 )
+
+func init() {
+	if len(os.Args) > 1 {
+		if num, err := strconv.Atoi(os.Args[1]); err == nil && num > 0 {
+			concurrency = num
+		}
+	}
+	if len(os.Args) > 2 {
+		if num, err := strconv.Atoi(os.Args[2]); err == nil && num > 0 {
+			copyConcurrency = num
+		}
+	}
+	fmt.Printf("Max Goroutine: %d\n", concurrency)
+}
 
 func main() {
 	var (
@@ -52,7 +71,7 @@ func main() {
 	fmt.Printf(" MFLOPS: %f time(s): %f %e\n\n",
 		mflops(nn, cpu, flop), cpu, gosa)
 
-	nn = (int)(target / (cpu / 3.0))
+	nn = int(target / (cpu / 3.0))
 
 	fmt.Printf(" Now, start the actual measurement process.\n")
 	fmt.Printf(" The loop will be excuted in %d times\n", nn)
@@ -72,31 +91,11 @@ func main() {
 	fmt.Printf(" Gosa : %e \n", gosa)
 	fmt.Printf(" MFLOPS measured : %f\tcpu : %f\n", mflops(nn, cpu, flop), cpu)
 	fmt.Printf(" Score based on Pentium III 600MHz : %f\n",
-		mflops(nn, cpu, flop)/82, 84)
+		mflops(nn, cpu, flop)/82)
 }
 
 func initmt() {
 	var i, j, k int
-
-	for i = 0; i < MIMAX; i++ {
-		for j = 0; j < MJMAX; j++ {
-			for k = 0; k < MKMAX; k++ {
-				a[0][i][j][k] = 0.0
-				a[1][i][j][k] = 0.0
-				a[2][i][j][k] = 0.0
-				a[3][i][j][k] = 0.0
-				b[0][i][j][k] = 0.0
-				b[1][i][j][k] = 0.0
-				b[2][i][j][k] = 0.0
-				c[0][i][j][k] = 0.0
-				c[1][i][j][k] = 0.0
-				c[2][i][j][k] = 0.0
-				p[i][j][k] = 0.0
-				wrk1[i][j][k] = 0.0
-				bnd[i][j][k] = 0.0
-			}
-		}
-	}
 
 	for i = 0; i < imax; i++ {
 		for j = 0; j < jmax; j++ {
@@ -111,7 +110,7 @@ func initmt() {
 				c[0][i][j][k] = 1.0
 				c[1][i][j][k] = 1.0
 				c[2][i][j][k] = 1.0
-				p[i][j][k] = (float32)(i*i) / (float32)((imax-1)*(imax-1))
+				p[i][j][k] = float32(i*i) / float32((imax-1)*(imax-1))
 				wrk1[i][j][k] = 0.0
 				bnd[i][j][k] = 1.0
 			}
@@ -120,40 +119,72 @@ func initmt() {
 }
 
 func jacobi(nn int) float32 {
-	var i, j, k, n int
-	var gosa, s0, ss float32
+	var gosa float32
 
-	for n = 1; n < nn+1; n++ {
+	for n := 1; n < nn+1; n++ {
 		gosa = 0.0
 
-		for i = 1; i < imax-1; i++ {
-			for j = 1; j < jmax-1; j++ {
-				for k = 1; k < kmax-1; k++ {
-					s0 = a[0][i][j][k]*p[i+1][j][k] +
-						a[1][i][j][k]*p[i][j+1][k] +
-						a[2][i][j][k]*p[i][j][k+1] +
-						b[0][i][j][k]*(p[i+1][j+1][k]-p[i+1][j-1][k]-p[i-1][j+1][k]+p[i-1][j-1][k]) +
-						b[1][i][j][k]*(p[i][j+1][k+1]-p[i][j-1][k+1]-p[i][j+1][k-1]+p[i][j-1][k-1]) +
-						b[2][i][j][k]*(p[i+1][j][k+1]-p[i-1][j][k+1]-p[i+1][j][k-1]+p[i-1][j][k-1]) +
-						c[0][i][j][k]*p[i-1][j][k] + c[1][i][j][k]*p[i][j-1][k] + c[2][i][j][k]*p[i][j][k-1] +
-						wrk1[i][j][k]
+		lock := sync.Mutex{}
+		semaphore := make(chan struct{}, concurrency)
+		ws := sync.WaitGroup{}
 
-					ss = (s0*a[3][i][j][k] - p[i][j][k]) * bnd[i][j][k]
+		for i := 1; i < imax-1; i++ {
+			semaphore <- struct{}{}
+			ws.Add(1)
+			go func(i int) {
+				defer func() {
+					ws.Done()
+				}()
 
-					gosa += ss * ss
-					/* gosa= (gosa > ss*ss) ? a : b; */
-					wrk2[i][j][k] = p[i][j][k] + omega*ss
+				var ssxss float32
+				for j := 1; j < jmax-1; j++ {
+					for k := 1; k < kmax-1; k++ {
+						var s0, ss float32
+						s0 = a[0][i][j][k]*p[i+1][j][k] +
+							a[1][i][j][k]*p[i][j+1][k] +
+							a[2][i][j][k]*p[i][j][k+1] +
+							b[0][i][j][k]*(p[i+1][j+1][k]-p[i+1][j-1][k]-p[i-1][j+1][k]+p[i-1][j-1][k]) +
+							b[1][i][j][k]*(p[i][j+1][k+1]-p[i][j-1][k+1]-p[i][j+1][k-1]+p[i][j-1][k-1]) +
+							b[2][i][j][k]*(p[i+1][j][k+1]-p[i-1][j][k+1]-p[i+1][j][k-1]+p[i-1][j][k-1]) +
+							c[0][i][j][k]*p[i-1][j][k] + c[1][i][j][k]*p[i][j-1][k] + c[2][i][j][k]*p[i][j][k-1] +
+							wrk1[i][j][k]
+
+						ss = (s0*a[3][i][j][k] - p[i][j][k]) * bnd[i][j][k]
+						//fmt.Printf("%.16f\n", ssxss)
+
+						ssxss += ss * ss
+						/* gosa= (gosa > ss*ss) ? a : b; */
+						wrk2[i][j][k] = p[i][j][k] + omega*ss
+					}
 				}
-			}
-		}
+				<-semaphore
+				lock.Lock()
+				//fmt.Printf("%.16f\n", ssxss)
+				gosa += ssxss
+				lock.Unlock()
+			}(i)
 
-		for i = 1; i < imax-1; i++ {
-			for j = 1; j < jmax-1; j++ {
-				for k = 1; k < kmax-1; k++ {
-					p[i][j][k] = wrk2[i][j][k]
-				}
-			}
 		}
+		ws.Wait()
+
+		semaphore = make(chan struct{}, copyConcurrency)
+		for i := 1; i < imax-1; i++ {
+			ws.Add(1)
+			semaphore <- struct{}{}
+			go func(i int) {
+				go func() {
+					<- semaphore
+					ws.Done()
+				}()
+
+				for j := 1; j < jmax-1; j++ {
+					for k := 1; k < kmax-1; k++ {
+						p[i][j][k] = wrk2[i][j][k]
+					}
+				}
+			}(i)
+		}
+		ws.Wait()
 	}
 
 	return gosa
