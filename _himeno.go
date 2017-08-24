@@ -25,6 +25,9 @@ var (
 	omega            float32
 	concurrency      = 8
 	copyConcurrency  = concurrency
+
+	mainJobChan = make(chan Job, MIMAX)
+	sumJobCHan = make(chan Job, MIMAX)
 )
 
 func init() {
@@ -39,6 +42,14 @@ func init() {
 		}
 	}
 	fmt.Printf("Max Goroutine: %d\n", concurrency)
+
+	for i := 0; i < concurrency; i++ {
+		go JacobiMainWorker()
+	}
+
+	for i := 0; i < copyConcurrency; i++ {
+		go JacobiSumWorker()
+	}
 }
 
 func main() {
@@ -118,6 +129,13 @@ func initmt() {
 	}
 }
 
+type Job struct {
+	I int
+	Gosa *float32
+	Lock *sync.Mutex
+	ws *sync.WaitGroup
+}
+
 func jacobi(nn int) float32 {
 	var gosa float32
 
@@ -125,64 +143,25 @@ func jacobi(nn int) float32 {
 		gosa = 0.0
 
 		lock := sync.Mutex{}
-		semaphore := make(chan struct{}, concurrency)
 		ws := sync.WaitGroup{}
 
 		for i := 1; i < imax-1; i++ {
-			semaphore <- struct{}{}
 			ws.Add(1)
-			go func(i int) {
-				defer func() {
-					ws.Done()
-				}()
-
-				var ssxss float32
-				for j := 1; j < jmax-1; j++ {
-					for k := 1; k < kmax-1; k++ {
-						var s0, ss float32
-						s0 = a[0][i][j][k]*p[i+1][j][k] +
-							a[1][i][j][k]*p[i][j+1][k] +
-							a[2][i][j][k]*p[i][j][k+1] +
-							b[0][i][j][k]*(p[i+1][j+1][k]-p[i+1][j-1][k]-p[i-1][j+1][k]+p[i-1][j-1][k]) +
-							b[1][i][j][k]*(p[i][j+1][k+1]-p[i][j-1][k+1]-p[i][j+1][k-1]+p[i][j-1][k-1]) +
-							b[2][i][j][k]*(p[i+1][j][k+1]-p[i-1][j][k+1]-p[i+1][j][k-1]+p[i-1][j][k-1]) +
-							c[0][i][j][k]*p[i-1][j][k] + c[1][i][j][k]*p[i][j-1][k] + c[2][i][j][k]*p[i][j][k-1] +
-							wrk1[i][j][k]
-
-						ss = (s0*a[3][i][j][k] - p[i][j][k]) * bnd[i][j][k]
-						//fmt.Printf("%.16f\n", ssxss)
-
-						ssxss += ss * ss
-						/* gosa= (gosa > ss*ss) ? a : b; */
-						wrk2[i][j][k] = p[i][j][k] + omega*ss
-					}
-				}
-				<-semaphore
-				lock.Lock()
-				//fmt.Printf("%.16f\n", ssxss)
-				gosa += ssxss
-				lock.Unlock()
-			}(i)
-
+			mainJobChan <- Job{
+				I: i,
+				Gosa: &gosa,
+				Lock: &lock,
+				ws: &ws,
+			}
 		}
 		ws.Wait()
 
-		semaphore = make(chan struct{}, copyConcurrency)
 		for i := 1; i < imax-1; i++ {
 			ws.Add(1)
-			semaphore <- struct{}{}
-			go func(i int) {
-				go func() {
-					<- semaphore
-					ws.Done()
-				}()
-
-				for j := 1; j < jmax-1; j++ {
-					for k := 1; k < kmax-1; k++ {
-						p[i][j][k] = wrk2[i][j][k]
-					}
-				}
-			}(i)
+			sumJobCHan <- Job{
+				I: i,
+				ws: &ws,
+			}
 		}
 		ws.Wait()
 	}
@@ -211,5 +190,56 @@ func second() float64 {
 	} else {
 		sub := now.Sub(baseTime)
 		return float64(sub.Seconds())
+	}
+}
+
+func JacobiMainWorker() {
+	for {
+		payload := <-mainJobChan
+		i := payload.I
+
+		var ssxss float32
+		for j := 1; j < jmax-1; j++ {
+			for k := 1; k < kmax-1; k++ {
+				var s0, ss float32
+				s0 = a[0][i][j][k]*p[i+1][j][k] +
+					a[1][i][j][k]*p[i][j+1][k] +
+					a[2][i][j][k]*p[i][j][k+1] +
+					b[0][i][j][k]*(p[i+1][j+1][k]-p[i+1][j-1][k]-p[i-1][j+1][k]+p[i-1][j-1][k]) +
+					b[1][i][j][k]*(p[i][j+1][k+1]-p[i][j-1][k+1]-p[i][j+1][k-1]+p[i][j-1][k-1]) +
+					b[2][i][j][k]*(p[i+1][j][k+1]-p[i-1][j][k+1]-p[i+1][j][k-1]+p[i-1][j][k-1]) +
+					c[0][i][j][k]*p[i-1][j][k] + c[1][i][j][k]*p[i][j-1][k] + c[2][i][j][k]*p[i][j][k-1] +
+					wrk1[i][j][k]
+
+				ss = (s0*a[3][i][j][k] - p[i][j][k]) * bnd[i][j][k]
+				//fmt.Printf("%.16f\n", ssxss)
+
+				ssxss += ss * ss
+				/* gosa= (gosa > ss*ss) ? a : b; */
+				wrk2[i][j][k] = p[i][j][k] + omega*ss
+			}
+		}
+		payload.Lock.Lock()
+		//fmt.Printf("%.16f\n", ssxss)
+		*(payload.Gosa) += ssxss
+		payload.Lock.Unlock()
+
+		payload.ws.Done()
+	}
+}
+
+func JacobiSumWorker() {
+	for {
+
+		payload := <-sumJobCHan
+		i := payload.I
+
+		for j := 1; j < jmax-1; j++ {
+			for k := 1; k < kmax-1; k++ {
+				p[i][j][k] = wrk2[i][j][k]
+			}
+		}
+
+		payload.ws.Done()
 	}
 }
