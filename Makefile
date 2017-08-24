@@ -22,11 +22,20 @@ MIMAX=$($(SIZE)_MIMAX)
 MJMAX=$($(SIZE)_MJMAX)
 MKMAX=$($(SIZE)_MKMAX)
 
+DIST=himeno.go
+SRC=_himeno.go
+
 .PHONY: build
 build:
 	sed -E \
 	-e "s/(const *MIMAX).*$$/\1 = $(MIMAX)/" \
 	-e "s/(const *MJMAX).*$$/\1 = $(MJMAX)/" \
 	-e "s/(const *MKMAX).*$$/\1 = $(MKMAX)/" \
-	_himeno.go > himeno.go
+	$(SRC) > $(DIST)
 	go build
+
+.PHONY: fmt
+fmt:
+	mv $(SRC) $(DIST)
+	go fmt $(DIST)
+	mv $(DIST) $(SRC)
