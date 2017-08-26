@@ -172,7 +172,7 @@ func jacobi(nn int) float32 {
 			ws.Add(1)
 			semaphore <- struct{}{}
 			go func(i int) {
-				go func() {
+				defer func() {
 					<- semaphore
 					ws.Done()
 				}()
