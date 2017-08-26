@@ -27,7 +27,7 @@ var (
 	copyConcurrency  = concurrency
 
 	mainJobChan = make(chan Job, MIMAX)
-	sumJobCHan = make(chan Job, MIMAX)
+	sumJobCHan  = make(chan Job, MIMAX)
 )
 
 func init() {
@@ -130,36 +130,35 @@ func initmt() {
 }
 
 type Job struct {
-	I int
-	Gosa *float32
-	Lock *sync.Mutex
-	ws *sync.WaitGroup
+	I    int
+	Gosa chan float32
+	ws   *sync.WaitGroup
 }
 
 func jacobi(nn int) float32 {
 	var gosa float32
+	var gosaChan = make(chan float32, MIMAX)
 
 	for n := 1; n < nn+1; n++ {
 		gosa = 0.0
 
-		lock := sync.Mutex{}
-		ws := sync.WaitGroup{}
-
-		for i := 1; i < imax-1; i++ {
-			ws.Add(1)
-			mainJobChan <- Job{
-				I: i,
-				Gosa: &gosa,
-				Lock: &lock,
-				ws: &ws,
+		go func() {
+			for i := 1; i < imax-1; i++ {
+				mainJobChan <- Job{
+					I:    i,
+					Gosa: gosaChan,
+				}
 			}
+		}()
+		for i := 1; i < imax-1; i++ {
+			gosa += <-gosaChan
 		}
-		ws.Wait()
 
+		ws := sync.WaitGroup{}
 		for i := 1; i < imax-1; i++ {
 			ws.Add(1)
 			sumJobCHan <- Job{
-				I: i,
+				I:  i,
 				ws: &ws,
 			}
 		}
@@ -219,12 +218,7 @@ func JacobiMainWorker() {
 				wrk2[i][j][k] = p[i][j][k] + omega*ss
 			}
 		}
-		payload.Lock.Lock()
-		//fmt.Printf("%.16f\n", ssxss)
-		*(payload.Gosa) += ssxss
-		payload.Lock.Unlock()
-
-		payload.ws.Done()
+		payload.Gosa <- ssxss
 	}
 }
 
