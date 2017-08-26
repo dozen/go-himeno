@@ -145,8 +145,8 @@ func jacobi(nn int) float32 {
 			gosa += <-gosaChan
 		}
 
+		ws.Add(imax - 2)
 		for i := 1; i < imax-1; i++ {
-			ws.Add(1)
 			sumJobChan <- i
 		}
 		ws.Wait()
