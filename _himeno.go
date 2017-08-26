@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"sync"
 	"time"
+	"runtime"
 )
 
 //プリプロセス
@@ -23,7 +24,7 @@ var (
 	wrk2             [MIMAX][MJMAX][MKMAX]float32
 	imax, jmax, kmax int
 	omega            float32
-	concurrency      = 8
+	concurrency      = runtime.NumCPU()
 	copyConcurrency  = concurrency
 	mainJobChan      = make(chan int, MIMAX)
 	gosaChan         = make(chan float32, MIMAX)
