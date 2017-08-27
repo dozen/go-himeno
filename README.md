@@ -28,7 +28,7 @@ change worker goroutine
 デフォルトではどちらもCPU数になる。
 
 
-### Benchmark Result
+## Benchmark Result
 
 * env:
     * Node: MacBook Pro (Retina, 13-inch, Early 2015)
