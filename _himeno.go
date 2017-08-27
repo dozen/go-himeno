@@ -3,10 +3,10 @@ package main
 import (
 	"fmt"
 	"os"
+	"runtime"
 	"strconv"
 	"sync"
 	"time"
-	"runtime"
 )
 
 //プリプロセス
