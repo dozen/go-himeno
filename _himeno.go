@@ -3,10 +3,10 @@ package main
 import (
 	"fmt"
 	"os"
+	"runtime"
 	"strconv"
 	"sync"
 	"time"
-	"runtime"
 )
 
 //プリプロセス
@@ -15,13 +15,13 @@ const MJMAX = 0
 const MKMAX = 0
 
 var (
-	p                [MIMAX][MJMAX][MKMAX]float32
-	a                [4][MIMAX][MJMAX][MKMAX]float32
-	b                [3][MIMAX][MJMAX][MKMAX]float32
-	c                [3][MIMAX][MJMAX][MKMAX]float32
-	bnd              [MIMAX][MJMAX][MKMAX]float32
-	wrk1             [MIMAX][MJMAX][MKMAX]float32
-	wrk2             [MIMAX][MJMAX][MKMAX]float32
+	p                *[MIMAX][MJMAX][MKMAX]float32
+	a                *[4][MIMAX][MJMAX][MKMAX]float32
+	b                *[3][MIMAX][MJMAX][MKMAX]float32
+	c                *[3][MIMAX][MJMAX][MKMAX]float32
+	bnd              *[MIMAX][MJMAX][MKMAX]float32
+	wrk1             *[MIMAX][MJMAX][MKMAX]float32
+	wrk2             *[MIMAX][MJMAX][MKMAX]float32
 	imax, jmax, kmax int
 	omega            float32
 	concurrency      = runtime.NumCPU()
@@ -52,6 +52,14 @@ func init() {
 	for i := 0; i < copyConcurrency; i++ {
 		go JacobiSumWorker()
 	}
+
+	p = &[MIMAX][MJMAX][MKMAX]float32{}
+	a = &[4][MIMAX][MJMAX][MKMAX]float32{}
+	b = &[3][MIMAX][MJMAX][MKMAX]float32{}
+	c = &[3][MIMAX][MJMAX][MKMAX]float32{}
+	bnd = &[MIMAX][MJMAX][MKMAX]float32{}
+	wrk1 = &[MIMAX][MJMAX][MKMAX]float32{}
+	wrk2 = &[MIMAX][MJMAX][MKMAX]float32{}
 }
 
 func main() {
@@ -109,6 +117,26 @@ func main() {
 
 func initmt() {
 	var i, j, k int
+
+	for i = 0; i < MIMAX; i++ {
+		for j = 0; j < MJMAX; j++ {
+			for k = 0; k < MKMAX; k++ {
+				a[0][i][j][k] = 0.0
+				a[1][i][j][k] = 0.0
+				a[2][i][j][k] = 0.0
+				a[3][i][j][k] = 0.0
+				b[0][i][j][k] = 0.0
+				b[1][i][j][k] = 0.0
+				b[2][i][j][k] = 0.0
+				c[0][i][j][k] = 0.0
+				c[1][i][j][k] = 0.0
+				c[2][i][j][k] = 0.0
+				p[i][j][k] = 0.0
+				wrk1[i][j][k] = 0.0
+				bnd[i][j][k] = 0.0
+			}
+		}
+	}
 
 	for i = 0; i < imax; i++ {
 		for j = 0; j < jmax; j++ {
