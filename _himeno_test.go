@@ -211,9 +211,9 @@ func jacobiSlice() float32 {
 }
 
 func BenchmarkJacobiArray(b *testing.B) {
+	gosa := float32(0)
 	initArray()
 	b.ResetTimer()
-	gosa := float32(0)
 	for i := 0; i < b.N; i++ {
 		gosa = jacobi()
 	}
@@ -221,9 +221,9 @@ func BenchmarkJacobiArray(b *testing.B) {
 }
 
 func BenchmarkJacobiSlice(b *testing.B) {
+	gosa := float32(0)
 	initSlice()
 	b.ResetTimer()
-	gosa := float32(0)
 	for i := 0; i < b.N; i++ {
 		gosa = jacobiSlice()
 	}
