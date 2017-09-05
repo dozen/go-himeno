@@ -37,5 +37,5 @@ build:
 .PHONY: fmt
 fmt:
 	mv $(SRC) $(DIST)
-	go fmt $(DIST)
+	go fmt
 	mv $(DIST) $(SRC)

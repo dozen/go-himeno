@@ -1,21 +1,21 @@
 package main
 
 import (
-	"net"
-	"io"
 	"bytes"
 	"fmt"
+	"io"
+	"net"
 )
 
-const(
-	DefaultProtocol   = "tcp"
-	DefaultListenAddr = "0.0.0.0:22122"
+const (
+	DefaultProtocol      = "tcp"
+	DefaultListenAddr    = "0.0.0.0:22122"
 	DefaultRPCListenAddr = "0.0.0.0:22123"
 
 	MethodCLIENT = "client"
 	MethodSERVER = "server"
 
-	MessageTrue = "T"
+	MessageTrue  = "T"
 	MessageFalse = "F"
 )
 
@@ -24,13 +24,11 @@ func init() {
 	ctrlSrvCh := make(chan error)
 	ServeTCP(DefaultProtocol, DefaultRPCListenAddr, controlServerHandler, ctrlSrvCh)
 
-	
-
 	select {
-		case err := <- ctrlSrvCh:
-			if err != nil {
-				fmt.Errorf(err.Error())
-			}
+	case err := <-ctrlSrvCh:
+		if err != nil {
+			fmt.Errorf(err.Error())
+		}
 	}
 }
 
@@ -83,8 +81,8 @@ func receive(conn io.Reader) {
 	msg := make([]byte, 6)
 	conn.Read(msg)
 
-	if bytes.Compare(msg, methodClient()){
-		
+	if bytes.Compare(msg, methodClient()) {
+
 	}
 
 }
