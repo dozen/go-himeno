@@ -22,7 +22,7 @@ MIMAX=$($(SIZE)_MIMAX)
 MJMAX=$($(SIZE)_MJMAX)
 MKMAX=$($(SIZE)_MKMAX)
 
-DIST=himeno.go
+DIST=himeno_test.go
 SRC=_$(DIST)
 
 .PHONY: build
@@ -32,7 +32,11 @@ build:
 	-e "s/(const *MJMAX).*$$/\1 = $(MJMAX)/" \
 	-e "s/(const *MKMAX).*$$/\1 = $(MKMAX)/" \
 	$(SRC) > $(DIST)
-	go build
+	make test
+
+.PHONY: test
+test:
+	go test -bench . -benchmem
 
 .PHONY: fmt
 fmt:
