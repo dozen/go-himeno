@@ -217,7 +217,6 @@ func BenchmarkJacobiArray(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		gosa = jacobi()
 	}
-	b.Logf("gosa: %v", gosa)
 }
 
 func BenchmarkJacobiSlice(b *testing.B) {
@@ -227,5 +226,4 @@ func BenchmarkJacobiSlice(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		gosa = jacobiSlice()
 	}
-	b.Logf("gosa: %v", gosa)
 }
