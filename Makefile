@@ -37,5 +37,9 @@ build:
 .PHONY: fmt
 fmt:
 	mv $(SRC) $(DIST)
-	go fmt
+	go fmt ./...
 	mv $(DIST) $(SRC)
+
+.PHONY: proto
+proto:
+	protoc -Imanager/proto/ manager/proto/proto.proto --go_out=plugins=grpc:manager/proto

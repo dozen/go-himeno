@@ -1,0 +1,63 @@
+syntax = "proto3";
+
+package manager;
+
+service Manager {
+    //for CLI
+    rpc Stats (StatsReq) returns (StatsRes) {}
+    rpc Start (StartReq) returns (StartRes) {}
+
+    //for Worker
+    rpc Join (JoinReq) returns (JoinRes) {}
+    rpc Job (JobReq) returns (JobRes) {}
+    rpc Kick (KickReq) returns (KickRes) {}
+}
+
+message StatsReq {
+}
+
+message StatsRes {
+    repeated Node nodeList = 1;
+}
+
+message Node {
+    string status = 1;
+    string address = 2;
+    double score = 3;
+    int64 link_speed = 4;
+    JobRes job = 5;
+}
+
+message StartReq {
+}
+
+message StartRes {
+    string status = 1;
+}
+
+message JoinReq{
+    string addr = 1;
+    double score = 2;
+    int64 link_speed = 3;
+}
+
+message JoinRes{
+    bool success = 1;
+}
+
+message JobReq {
+}
+
+message JobRes {
+    string size = 1;
+    int64 left = 2;
+    int64 right = 3;
+    string left_neighbor = 4;
+    string right_neighbor = 5;
+}
+
+message KickReq {
+}
+
+message KickRes {
+}
