@@ -46,6 +46,7 @@ message JoinRes{
 }
 
 message JobReq {
+    string addr = 1;
 }
 
 message JobRes {
@@ -57,6 +58,7 @@ message JobRes {
 }
 
 message KickReq {
+    string addr = 1;
 }
 
 message KickRes {

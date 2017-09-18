@@ -11,6 +11,9 @@ import (
 var (
 	addr    = kingpin.Flag("addr", "Server Address").Default("127.0.0.1:" + manager.MngPort).String()
 	command = kingpin.Arg("command", "Command").Required().String()
+
+	src = kingpin.Flag("src", "Client Address").Default("0.0.0.0").String()
+	score = kingpin.Flag("score", "Client Score").Default("3000").Float64()
 )
 
 func main() {
@@ -24,6 +27,8 @@ func main() {
 		stats(c)
 	case "start":
 		start(c)
+	case "join":
+		join(c)
 	}
 }
 
@@ -34,7 +39,9 @@ func stats(c pb.ManagerClient) {
 		panic(err)
 	}
 
-	fmt.Printf("%v\n", r.NodeList)
+	for _, node := range r.NodeList {
+		fmt.Printf("%v { score:%v } : %+v\n", node.Address, node.Score, *(node.Job))
+	}
 }
 
 func start(c pb.ManagerClient) {
@@ -45,4 +52,16 @@ func start(c pb.ManagerClient) {
 	}
 
 	fmt.Println("start.")
+}
+
+func join(c pb.ManagerClient) {
+	ctx := context.Background()
+	_, err := c.Join(ctx, &pb.JoinReq{
+		Addr: *src,
+		Score: *score,
+		LinkSpeed: 1000,
+	})
+	if err != nil {
+		panic(err)
+	}
 }

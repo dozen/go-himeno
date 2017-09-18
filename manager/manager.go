@@ -16,11 +16,22 @@ const (
 	MngAddr  = "0.0.0.0:" + MngPort
 )
 
+var (
+	Size2MIMAX = map[string]int{
+		"SSMALL": 33,
+		"SMALL":  65,
+		"MIDDLE": 129,
+		"LARGE":  257,
+		"ELARGE": 513,
+	}
+)
+
 type Manager struct {
 	Size      string
 	Nodes     []*pb.Node
+	NodesLock sync.RWMutex
 	StartLock sync.RWMutex
-	KickLock  sync.RWMutex
+	KickCount sync.WaitGroup
 }
 
 func (mc *Manager) Stats(ctx context.Context, in *pb.StatsReq) (*pb.StatsRes, error) {
@@ -35,6 +46,8 @@ func (mc *Manager) Start(ctx context.Context, in *pb.StartReq) (*pb.StartRes, er
 	//Joinを締め切ってJobの割り当てを行う
 	res := pb.StartRes{}
 	//jobの振り分けを実装
+	mc.setJob()
+	mc.StartLock.Unlock() //Job送ってもいいようにする
 	return &res, nil
 }
 
@@ -42,20 +55,32 @@ func (mc *Manager) Join(ctx context.Context, in *pb.JoinReq) (*pb.JoinRes, error
 	//for Worker
 	//score と linkspeed を申告して参加
 	res := pb.JoinRes{}
+
+	mc.NodesLock.Lock()
 	mc.Nodes = append(mc.Nodes, &pb.Node{
 		Status:    "ok",
 		Address:   in.Addr,
 		Score:     in.Score,
 		LinkSpeed: in.LinkSpeed,
 	})
+	mc.NodesLock.Unlock()
+	mc.KickCount.Add(1)
+	in.Reset()
 	return &res, nil
 }
 
 func (mc *Manager) Job(ctx context.Context, in *pb.JobReq) (*pb.JobRes, error) {
 	//Jobの割り当てが終わるのを待って各ノードにJobを送信
 	mc.StartLock.RLock()
-	res := pb.JobRes{}
-	return &res, nil
+	defer mc.StartLock.RUnlock()
+
+	var res *pb.JobRes
+	for _, node := range mc.Nodes {
+		if node.Address == in.Addr {
+			res = node.Job
+		}
+	}
+	return res, nil
 }
 
 func (mc *Manager) Kick(ctx context.Context, in *pb.KickReq) (*pb.KickRes, error) {
@@ -63,8 +88,67 @@ func (mc *Manager) Kick(ctx context.Context, in *pb.KickReq) (*pb.KickRes, error
 	//全部の KickReq が送られてきたのを確認して KickRes を一斉に返す
 	res := pb.KickRes{}
 
-	mc.KickLock.RLock()
+	fmt.Println(in.Addr, "is ready.")
+	mc.KickCount.Done()
+	mc.KickCount.Wait()
 	return &res, nil
+}
+
+func (mc *Manager) setJob() {
+	totalScore := 0.0
+	for _, node := range mc.Nodes {
+		totalScore += node.Score
+	}
+
+	loads := []int{}
+	totalLoad := 0
+	for _, node := range mc.Nodes {
+		load := int(node.Score/totalScore * float64(Size2MIMAX[mc.Size]))
+		loads = append(loads, load)
+		totalLoad += load
+	}
+
+	//totalLoadがMIMAXより足りない時がある
+	//同じ数になるまで揃える処理をする
+	for {
+		if totalLoad < Size2MIMAX[mc.Size] {
+			val := 0
+			index := 0
+			for i, load := range loads {
+				if val < load {
+					val = load
+					index = i
+				}
+			}
+			loads[index]++
+			totalLoad++
+		} else {
+			break
+		}
+	}
+
+	//Job作成
+	left := 0
+	right := 0
+	leftNeighbor := ""
+	rightNeighbor := ""
+	for i, load := range loads {
+		left = right
+		right = left + load
+		leftNeighbor = rightNeighbor
+		if i < len(mc.Nodes)-1 {
+			rightNeighbor = mc.Nodes[i+1].Address
+		} else {
+			rightNeighbor = ""
+		}
+		mc.Nodes[i].Job = &pb.JobRes{
+			Size:          mc.Size,
+			Left:          int64(left),
+			Right:         int64(right),
+			LeftNeighbor:  leftNeighbor,
+			RightNeighbor: rightNeighbor,
+		}
+	}
 }
 
 func ServeManager(protocol, addr, size string, s *grpc.Server) {
@@ -87,7 +171,6 @@ func ServeManager(protocol, addr, size string, s *grpc.Server) {
 		Size: size,
 	}
 	mng.StartLock.Lock() //Join終わったら解除
-	mng.KickLock.Lock()  //Job生成が終わったら解除
 
 	pb.RegisterManagerServer(s, &mng)
 	reflection.Register(s)
