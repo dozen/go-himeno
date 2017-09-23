@@ -10,9 +10,9 @@ import (
 )
 
 //プリプロセス
-const MIMAX = 0
-const MJMAX = 0
-const MKMAX = 0
+const MIMAX = 257
+const MJMAX = 257
+const MKMAX = 513
 
 var (
 	p                [MIMAX][MJMAX][MKMAX]float32
