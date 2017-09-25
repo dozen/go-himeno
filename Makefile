@@ -36,6 +36,10 @@ build:
 	$(SRC) > $(DIST)
 	go build
 
+.PHONY: mng
+mng:
+	go build cmd/himeno-mng/himeno-mng.go
+
 .PHONY: fmt
 fmt:
 	mv $(SRC) $(DIST)

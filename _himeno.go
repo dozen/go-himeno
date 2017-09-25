@@ -1,7 +1,10 @@
-package main
+package go_himeno
 
 import (
+	"context"
 	"fmt"
+	"github.com/dozen/go-himeno/manager"
+	pb "github.com/dozen/go-himeno/manager/proto"
 	"os"
 	"runtime"
 	"strconv"
@@ -13,6 +16,7 @@ import (
 const MIMAX = 257
 const MJMAX = 257
 const MKMAX = 513
+const SIZE = "LARGE"
 
 var (
 	p                [MIMAX][MJMAX][MKMAX]float32
@@ -52,6 +56,8 @@ func init() {
 	for i := 0; i < copyConcurrency; i++ {
 		go JacobiSumWorker()
 	}
+
+	initmt() //配列初期化
 }
 
 func main() {
@@ -60,19 +66,26 @@ func main() {
 		gosa                  float32
 		cpu, cpu0, cpu1, flop float64
 		target                = 60.0
+		imax                  = MIMAX - 1
+		jmax                  = MJMAX - 1
+		kmax                  = MKMAX - 1
+		omega                 = 0.8
+		nn                    = 3 //最初は3回回す
 	)
-	imax = MIMAX - 1
-	jmax = MJMAX - 1
-	kmax = MKMAX - 1
-	omega = 0.8
+	mngC, mngCloser := manager.ManagerClient(*addr)
+	defer mngCloser()
 
-	initmt()
+	ctx := context.Background()
+	join(ctx, mngC)
+
 	fmt.Printf("mimax = %d mjmax = %d mkmax = %d\n", MIMAX, MJMAX, MKMAX)
 	fmt.Printf("imax = %d jmax = %d kmax =%d\n", imax, jmax, kmax)
-
-	nn = 3
 	fmt.Printf(" Start rehearsal measurement process.\n")
 	fmt.Printf(" Measure the performance in %d times.\n\n", nn)
+
+	getJob(ctx, mngC) // Jobをもらい、Neighbor との通信を始める
+
+	waitKick(ctx, mngC) // ここで manager から開始の合図 kick を待つ
 
 	cpu0 = second()
 	gosa = jacobi(nn)

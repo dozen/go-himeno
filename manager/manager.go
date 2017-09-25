@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	pb "github.com/dozen/go-himeno/manager/proto"
+	"github.com/k0kubun/pp"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 	"net"
@@ -30,67 +31,89 @@ type Manager struct {
 	Size      string
 	Nodes     []*pb.Node
 	NodesLock sync.RWMutex
-	StartLock sync.RWMutex
 	KickCount sync.WaitGroup
+	StartCond *sync.Cond
+	KillCond  *sync.Cond
 }
 
-func (mc *Manager) Stats(ctx context.Context, in *pb.StatsReq) (*pb.StatsRes, error) {
+func (mc *Manager) Stats(ctx context.Context, req *pb.StatsReq) (*pb.StatsRes, error) {
 	//for CLI
 	//ノードの一覧などを返す
 	res := pb.StatsRes{mc.Nodes}
 	return &res, nil
 }
 
-func (mc *Manager) Start(ctx context.Context, in *pb.StartReq) (*pb.StartRes, error) {
+func (mc *Manager) Start(ctx context.Context, req *pb.StartReq) (*pb.StartRes, error) {
 	//for CLI
 	//Joinを締め切ってJobの割り当てを行う
 	res := pb.StartRes{}
 	//jobの振り分けを実装
 	mc.setJob()
-	mc.StartLock.Unlock() //Job送ってもいいようにする
+	mc.StartCond.Broadcast() //Job送ってもいいようにする
 	return &res, nil
 }
 
-func (mc *Manager) Join(ctx context.Context, in *pb.JoinReq) (*pb.JoinRes, error) {
+func (mc *Manager) Join(ctx context.Context, req *pb.JoinReq) (*pb.JoinRes, error) {
 	//for Worker
 	//score と linkspeed を申告して参加
 	res := pb.JoinRes{}
 
-	mc.NodesLock.Lock()
-	mc.Nodes = append(mc.Nodes, &pb.Node{
+	newNode := &pb.Node{
 		Status:    "ok",
-		Address:   in.Addr,
-		Score:     in.Score,
-		LinkSpeed: in.LinkSpeed,
-	})
+		Address:   req.Addr,
+		Score:     req.Score,
+		LinkSpeed: req.LinkSpeed,
+	}
+
+	mc.NodesLock.Lock()
+	isNewNode := true
+	for i, node := range mc.Nodes {
+		if node.Address == req.Addr {
+			isNewNode = false
+			mc.Nodes[i] = newNode
+			fmt.Println("Node updated.")
+			break
+		}
+	}
+	if isNewNode {
+		mc.Nodes = append(mc.Nodes, newNode)
+		mc.KickCount.Add(1)
+
+		fmt.Println("New node added.")
+	}
 	mc.NodesLock.Unlock()
-	mc.KickCount.Add(1)
-	in.Reset()
+
+	pp.Println(newNode)
 	return &res, nil
 }
 
-func (mc *Manager) Job(ctx context.Context, in *pb.JobReq) (*pb.JobRes, error) {
+func (mc *Manager) Job(ctx context.Context, req *pb.JobReq) (*pb.JobRes, error) {
 	//Jobの割り当てが終わるのを待って各ノードにJobを送信
-	mc.StartLock.RLock()
-	defer mc.StartLock.RUnlock()
+	mc.StartCond.Wait()
 
 	var res *pb.JobRes
 	for _, node := range mc.Nodes {
-		if node.Address == in.Addr {
+		if node.Address == req.Addr {
 			res = node.Job
 		}
 	}
 	return res, nil
 }
 
-func (mc *Manager) Kick(ctx context.Context, in *pb.KickReq) (*pb.KickRes, error) {
+func (mc *Manager) Kick(ctx context.Context, req *pb.KickReq) (*pb.KickRes, error) {
 	//各ノードは他のノードと接続ができ次第 KickReq を送る。
 	//全部の KickReq が送られてきたのを確認して KickRes を一斉に返す
 	res := pb.KickRes{}
 
-	fmt.Println(in.Addr, "is ready.")
+	fmt.Println(req.Addr, "is ready.")
 	mc.KickCount.Done()
 	mc.KickCount.Wait()
+	return &res, nil
+}
+
+func (mc *Manager) Kill(ctx context.Context, req *pb.KillReq) (*pb.KillRes, error) {
+	defer mc.KillCond.Broadcast()
+	res := pb.KillRes{}
 	return &res, nil
 }
 
@@ -103,7 +126,7 @@ func (mc *Manager) setJob() {
 	loads := []int{}
 	totalLoad := 0
 	for _, node := range mc.Nodes {
-		load := int(node.Score/totalScore * float64(Size2MIMAX[mc.Size]))
+		load := int(node.Score / totalScore * float64(Size2MIMAX[mc.Size]))
 		loads = append(loads, load)
 		totalLoad += load
 	}
@@ -115,7 +138,7 @@ func (mc *Manager) setJob() {
 			val := 0
 			index := 0
 			for i, load := range loads {
-				if val < load {
+				if val > load {
 					val = load
 					index = i
 				}
@@ -168,14 +191,28 @@ func ServeManager(protocol, addr, size string, s *grpc.Server) {
 	}
 
 	mng := Manager{
-		Size: size,
+		Size:      size,
+		StartCond: sync.NewCond(new(sync.RWMutex)),
+		KillCond:  sync.NewCond(new(sync.RWMutex)),
 	}
-	mng.StartLock.Lock() //Join終わったら解除
 
 	pb.RegisterManagerServer(s, &mng)
 	reflection.Register(s)
+
+	fmt.Println("Start go-himeno Manager.")
+	fmt.Println("Bind:", lis.Addr().String())
+	fmt.Println("SIZE:", mng.Size)
+
+	go func(mng Manager) {
+		mng.KillCond.L.Lock()
+		defer mng.KillCond.L.Unlock()
+		mng.KillCond.Wait()
+		s.GracefulStop()
+		fmt.Println("Kill Signal Received. Shutdown.")
+	}(mng)
+
 	if err := s.Serve(lis); err != nil {
-		fmt.Errorf("%#v\n", err)
+		fmt.Println(err)
 	}
 }
 
