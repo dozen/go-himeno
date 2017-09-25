@@ -53,6 +53,12 @@ func (mc *Manager) Start(ctx context.Context, req *pb.StartReq) (*pb.StartRes, e
 	return &res, nil
 }
 
+func (mc *Manager) Kill(ctx context.Context, req *pb.KillReq) (*pb.KillRes, error) {
+	defer mc.KillCond.Broadcast()
+	res := pb.KillRes{}
+	return &res, nil
+}
+
 func (mc *Manager) Join(ctx context.Context, req *pb.JoinReq) (*pb.JoinRes, error) {
 	//for Worker
 	//score と linkspeed を申告して参加
@@ -89,6 +95,8 @@ func (mc *Manager) Join(ctx context.Context, req *pb.JoinReq) (*pb.JoinRes, erro
 
 func (mc *Manager) Job(ctx context.Context, req *pb.JobReq) (*pb.JobRes, error) {
 	//Jobの割り当てが終わるのを待って各ノードにJobを送信
+	mc.StartCond.L.Lock()
+	defer mc.StartCond.L.Unlock()
 	mc.StartCond.Wait()
 
 	var res *pb.JobRes
@@ -104,16 +112,18 @@ func (mc *Manager) Kick(ctx context.Context, req *pb.KickReq) (*pb.KickRes, erro
 	//各ノードは他のノードと接続ができ次第 KickReq を送る。
 	//全部の KickReq が送られてきたのを確認して KickRes を一斉に返す
 	res := pb.KickRes{}
-
+	defer func() {
+		fmt.Println(req.Addr, "was kicked.")
+	}()
 	fmt.Println(req.Addr, "is ready.")
 	mc.KickCount.Done()
 	mc.KickCount.Wait()
 	return &res, nil
 }
 
-func (mc *Manager) Kill(ctx context.Context, req *pb.KillReq) (*pb.KillRes, error) {
-	defer mc.KillCond.Broadcast()
-	res := pb.KillRes{}
+func (mc *Manager) ReportTimes(ctx context.Context, req *pb.ReportTimesReq) (*pb.ReportTimesRes, error) {
+	res := pb.ReportTimesRes{}
+
 	return &res, nil
 }
 
@@ -158,7 +168,10 @@ func (mc *Manager) setJob() {
 	for i, load := range loads {
 		left = right
 		right = left + load
-		leftNeighbor = rightNeighbor
+		if i != 0 {
+			//左端はNeighborがいない
+			leftNeighbor = mc.Nodes[i-1].Address
+		}
 		if i < len(mc.Nodes)-1 {
 			rightNeighbor = mc.Nodes[i+1].Address
 		} else {

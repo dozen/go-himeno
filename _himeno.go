@@ -1,10 +1,9 @@
-package go_himeno
+package main
 
 import (
 	"context"
 	"fmt"
 	"github.com/dozen/go-himeno/manager"
-	pb "github.com/dozen/go-himeno/manager/proto"
 	"os"
 	"runtime"
 	"strconv"
@@ -27,7 +26,7 @@ var (
 	wrk1             [MIMAX][MJMAX][MKMAX]float32
 	wrk2             [MIMAX][MJMAX][MKMAX]float32
 	imax, jmax, kmax int
-	omega            float32
+	omega            = float32(0.8)
 	concurrency      = runtime.NumCPU()
 	copyConcurrency  = concurrency
 	mainJobChan      = make(chan int, MIMAX)
@@ -62,17 +61,15 @@ func init() {
 
 func main() {
 	var (
-		nn                    int
+		nn                    = 3 //最初は3回回す
 		gosa                  float32
 		cpu, cpu0, cpu1, flop float64
 		target                = 60.0
 		imax                  = MIMAX - 1
 		jmax                  = MJMAX - 1
 		kmax                  = MKMAX - 1
-		omega                 = 0.8
-		nn                    = 3 //最初は3回回す
 	)
-	mngC, mngCloser := manager.ManagerClient(*addr)
+	mngC, mngCloser := manager.ManagerClient(*mngAddr)
 	defer mngCloser()
 
 	ctx := context.Background()
@@ -84,8 +81,11 @@ func main() {
 	fmt.Printf(" Measure the performance in %d times.\n\n", nn)
 
 	getJob(ctx, mngC) // Jobをもらい、Neighbor との通信を始める
+	fmt.Println("Get Job.")
 
+	fmt.Println("Waiting Kick....")
 	waitKick(ctx, mngC) // ここで manager から開始の合図 kick を待つ
+	fmt.Println("Start!")
 
 	cpu0 = second()
 	gosa = jacobi(nn)

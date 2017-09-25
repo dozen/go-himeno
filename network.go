@@ -1,4 +1,4 @@
-package go_himeno
+package main
 
 import (
 	"context"
@@ -17,9 +17,6 @@ var (
 	mngAddr = kingpin.Flag("manager", "Manager Host:Port").Short('m').Required().String()
 	addr    = kingpin.Flag("listen", "Listen Host:Port").Short('l').Default(":22123").String()
 	score   = kingpin.Flag("score", "Score MFLOPS").Short('s').Default("3000").Float64()
-
-	mngC       pb.ManagerClient
-	mngCCloser func() error
 
 	job pb.JobRes
 )
@@ -77,14 +74,12 @@ func startCommunication() {
 	//ここからクライアント
 	ws := sync.WaitGroup{}
 	if job.LeftNeighbor != "" {
-		ws.Add(1)
 		go func() {
 			NeighborClient(job.LeftNeighbor, int(job.Left), "left")
 			ws.Done()
 		}()
 	}
 	if job.RightNeighbor != "" {
-		ws.Add(1)
 		go func() {
 			NeighborClient(job.RightNeighbor, int(job.Right), "right")
 			ws.Done()
@@ -112,7 +107,7 @@ func NeighborClient(addr string, index int, dist string) {
 		panic(err)
 	}
 
-	//コネクション使ってなんかするんでしょ
+	// TODO: ClientHandlerでハンドシェイク的なの済ませてから抜けた方がいい気がしてきた
 	go ClientHandler(conn, index, remoteIndex)
 }
 
