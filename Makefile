@@ -35,11 +35,21 @@ build:
 	-e "s/(const *MKMAX).*$$/\1 = $(MKMAX)/" \
 	$(SRC) > $(DIST)
 	go build
-	rm $(DIST)
+	#rm $(DIST)
 
 .PHONY: mng
 mng:
 	go build cmd/himeno-mng/himeno-mng.go
+
+.PHONY: test
+test:
+	sed -E \
+	-e "s/(const *MIMAX).*$$/\1 = $(MIMAX)/" \
+	-e "s/(const *MJMAX).*$$/\1 = $(MJMAX)/" \
+	-e "s/(const *MKMAX).*$$/\1 = $(MKMAX)/" \
+	$(SRC) > $(DIST)
+	go test ./...
+	rm $(DIST)
 
 .PHONY: fmt
 fmt:

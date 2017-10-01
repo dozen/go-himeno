@@ -134,12 +134,21 @@ func NeighborClient(addr string, index int, dist string) {
 func ClientHandler(conn *net.TCPConn, local, remote int, dist string) {
 	//通信で Neighbor に 隣の (remoteの) 配列をもらう処理を書く
 	sig := make(chan byte)
+	endSig := make(chan struct{})
 	if dist == "left" {
 		//左側と通信
 		sig = leftChan
+		endSig = leftDoneChan
+		fmt.Println("左側")
+		fmt.Println(job.LeftNeighbor)
+		conn.Write([]byte(job.LeftNeighbor))
 	} else {
+		fmt.Println("右側")
+		fmt.Println(job.RightNeighbor)
+		conn.Write([]byte(job.RightNeighbor))
 		//右側と通信
 		sig = rightChan
+		endSig = rightDoneChan
 	}
 
 	for {
@@ -150,21 +159,28 @@ func ClientHandler(conn *net.TCPConn, local, remote int, dist string) {
 			continue
 		}
 
+		total := 0
 		payload := make([]byte, payloadSize)
 		parted := make([]byte, payloadSize)
+		fmt.Println("payloadSize:", payloadSize)
 		for {
+			fmt.Println("Client: receiving...")
 			parted = make([]byte, payloadSize)
 			part, err := conn.Read(parted)
+			total += part
 			payload = append(payload, parted[:part]...)
+			fmt.Println("part:", part)
 			if err != nil && err.Error() != "EOF" {
-				fmt.Println(err)
+				fmt.Println("Client:", err)
 				return
 			}
-			if err.Error() == "EOF" {
+			if err != nil && err.Error() == "EOF" || total >= payloadSize {
+				fmt.Println("Client: 受信完了")
 				break
 			}
 		}
 		mDeserialize(remote, payload)
+		endSig <- struct{}{}
 		fmt.Println("受信しました")
 	}
 }
@@ -211,18 +227,20 @@ func NCHandler(conn *net.TCPConn) {
 	fmt.Println(conn.LocalAddr().String(), ": connected by", conn.RemoteAddr().String())
 
 	index := 0
-	b := make([]byte, 256)
+	b := make([]byte, 128)
 	bLen, err := conn.Read(b)
 	if err != nil && err.Error() != "EOF" {
 		panic(err)
 	}
 	if string(b[:bLen]) == job.RightNeighbor {
+		fmt.Println("右側のクライアントが接続してきた")
 		index = int(job.Right) + 1
 	} else {
+		fmt.Println("左側のクライアントが接続してきた")
 		index = int(job.Left)
 	}
 	for {
-		b = make([]byte, 10)
+		b = make([]byte, 1)
 		if _, err := conn.Read(b); err != nil && err.Error() != "EOF" {
 			fmt.Println(err)
 			return
@@ -230,9 +248,12 @@ func NCHandler(conn *net.TCPConn) {
 		if b[0] == byte(MsgEnd) {
 			return
 		}
-		if _, err := conn.Write(mSerialize(index)); err != nil {
+
+		if n, err := conn.Write(mSerialize(index)); err != nil {
 			fmt.Println(err)
 			return
+		} else {
+			fmt.Println("Server: ", conn.RemoteAddr().String(), " send", n, "bytes.")
 		}
 	}
 }

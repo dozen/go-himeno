@@ -156,15 +156,13 @@ func initmt() {
 
 func jacobi(nn int) float32 {
 	var gosa float32
-	add := 0
 
-	imax = int(job.Right)
+	right := int(job.Right) + 1
 	left := int(job.Left)
 
 	//右端は -1 する
 	if job.RightNeighbor == "" {
-		imax -= 1
-		add = 1
+		right -= 1
 	}
 
 	fmt.Println("===========")
@@ -176,18 +174,18 @@ func jacobi(nn int) float32 {
 		gosa = 0.0
 
 		go func() {
-			for i := left; i < imax; i++ {
+			for i := left; i < right; i++ {
 				mainJobChan <- i
 			}
 		}()
-		for i := left + add; i < imax; i++ {
+		for i := left; i < right; i++ {
 			gosa += <-gosaChan
 		}
 
-		for i := left + add; i < imax; i++ {
+		for i := left; i < right; i++ {
 			sumJobChan <- i
 		}
-		for i := left + add; i < imax; i++ {
+		for i := left; i < right; i++ {
 			<-sumDoneChan
 		}
 	}
@@ -259,14 +257,16 @@ func JacobiSumWorker() {
 				p[i][j][k] = wrk2[i][j][k]
 			}
 		}
-		if i == int(job.Left) {
-			fmt.Println("left send!")
+		if i == int(job.Left) && job.LeftNeighbor != "" {
+			fmt.Println("left", i, " send!")
 			leftChan <- byte(1)
+			<-leftDoneChan
 			fmt.Println("left sended!")
-		} else if i == int(job.Right) {
-			fmt.Println("Right send!!!")
+		} else if i == int(job.Right) && job.RightNeighbor != "" {
+			fmt.Println("right", i, " send!!!")
 			rightChan <- byte(1)
-			fmt.Println("Right sended!!!")
+			<-rightDoneChan
+			fmt.Println("right sended!!!")
 		}
 		sumDoneChan <- struct{}{}
 	}
