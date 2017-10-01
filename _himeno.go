@@ -42,8 +42,16 @@ var (
 
 	leftChan      = make(chan byte)
 	leftDoneChan  = make(chan struct{})
+	leftRecvLock  = make(chan struct{}, 1)
+	leftBuf      *[]byte
 	rightChan     = make(chan byte)
 	rightDoneChan = make(chan struct{})
+	rightRecvLock = make(chan struct{}, 1)
+	rightBuf      *[]byte
+
+
+	allowAckLeftChan = make(chan struct{})
+	allowAckRightChan = make(chan struct{})
 )
 
 func init() {
@@ -171,6 +179,18 @@ func jacobi(nn int) float32 {
 	fmt.Println("===========")
 
 	for n := 1; n < nn+1; n++ {
+		fmt.Println("n:",n)
+		if n != 1 {
+			if job.RightNeighbor != "" {
+				<-rightRecvLock
+				mDeserialize(int(job.Right) + 1, *rightBuf)
+			}
+			if job.LeftNeighbor != "" {
+				<-leftRecvLock
+				mDeserialize(int(job.Left) - 1, *leftBuf)
+			}
+		}
+
 		gosa = 0.0
 
 		go func() {
@@ -182,11 +202,41 @@ func jacobi(nn int) float32 {
 			gosa += <-gosaChan
 		}
 
+		fmt.Println("Jacobi Done")
+
+		if job.LeftNeighbor != "" {
+			go func() {
+				allowAckLeftChan <- struct{}{}
+			}()
+		}
+		if job.RightNeighbor != "" {
+			go func() {
+				allowAckRightChan <- struct{}{}
+			}()
+		}
+
 		for i := left; i < right; i++ {
 			sumJobChan <- i
 		}
 		for i := left; i < right; i++ {
 			<-sumDoneChan
+		}
+
+		if job.LeftNeighbor != "" {
+			go func() {
+				leftChan <- byte(1)
+			}()
+		}
+		if job.RightNeighbor != "" {
+			go func() {
+				rightChan <- byte(1)
+			}()
+		}
+		if job.LeftNeighbor != "" {
+			<-leftDoneChan
+		}
+		if job.RightNeighbor != "" {
+			<-rightDoneChan
 		}
 	}
 
@@ -256,13 +306,6 @@ func JacobiSumWorker() {
 			for k := 1; k < kmax-1; k++ {
 				p[i][j][k] = wrk2[i][j][k]
 			}
-		}
-		if i == int(job.Left) && job.LeftNeighbor != "" {
-			leftChan <- byte(1)
-			<-leftDoneChan
-		} else if i == int(job.Right) && job.RightNeighbor != "" {
-			rightChan <- byte(1)
-			<-rightDoneChan
 		}
 		sumDoneChan <- struct{}{}
 	}

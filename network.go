@@ -141,15 +141,14 @@ func ClientHandler(conn *net.TCPConn, local, remote int, dist string) {
 		endSig = leftDoneChan
 		fmt.Println("左側")
 		fmt.Println(job.LeftNeighbor)
-		conn.Write([]byte(job.LeftNeighbor))
 	} else {
-		fmt.Println("右側")
-		fmt.Println(job.RightNeighbor)
-		conn.Write([]byte(job.RightNeighbor))
 		//右側と通信
 		sig = rightChan
 		endSig = rightDoneChan
+		fmt.Println("右側")
+		fmt.Println(job.RightNeighbor)
 	}
+	conn.Write([]byte(*addr))
 
 	for {
 		b := <-sig
@@ -175,8 +174,14 @@ func ClientHandler(conn *net.TCPConn, local, remote int, dist string) {
 				break
 			}
 		}
-		mDeserialize(remote, payload)
 		endSig <- struct{}{}
+		if dist == "left" {
+			leftBuf = &payload
+			leftRecvLock <- struct{}{}
+		} else {
+			rightBuf = &payload
+			rightRecvLock <- struct{}{}
+		}
 	}
 }
 
@@ -221,18 +226,29 @@ func NCHandler(conn *net.TCPConn) {
 	defer conn.Close()
 	fmt.Println(conn.LocalAddr().String(), ": connected by", conn.RemoteAddr().String())
 
+	var allowChan chan struct{}
+
 	index := 0
 	b := make([]byte, 128)
 	bLen, err := conn.Read(b)
 	if err != nil && err.Error() != "EOF" {
 		panic(err)
 	}
-	if string(b[:bLen]) == job.RightNeighbor {
-		fmt.Println("右側のクライアントが接続してきた")
-		index = int(job.Right) + 1
-	} else {
+	clientAddr := string(b[:bLen])
+	fmt.Printf("自分: %#v\tクライアント: %#v\t左: %#v\t右: %#v\n",
+		conn.LocalAddr().String(),
+		clientAddr,
+		job.LeftNeighbor,
+		job.RightNeighbor)
+
+	if clientAddr == job.LeftNeighbor {
 		fmt.Println("左側のクライアントが接続してきた")
 		index = int(job.Left)
+		allowChan = allowAckLeftChan
+	} else {
+		fmt.Println("右側のクライアントが接続してきた")
+		index = int(job.Right) + 1
+		allowChan = allowAckRightChan
 	}
 	for {
 		b = make([]byte, 1)
@@ -244,11 +260,10 @@ func NCHandler(conn *net.TCPConn) {
 			return
 		}
 
-		if n, err := conn.Write(mSerialize(index)); err != nil {
+		<-allowChan //集計が終わるまで待つ
+		if _, err := conn.Write(mSerialize(index)); err != nil {
 			fmt.Println(err)
 			return
-		} else {
-			fmt.Println("Server: ", conn.RemoteAddr().String(), " send", n, "bytes.")
 		}
 	}
 }
@@ -294,7 +309,7 @@ func mDeserialize(index int, b []byte) {
 				uint32(b[shift+2])<<8 |
 				uint32(b[shift+1])<<16 |
 				uint32(b[shift+0])<<24
-			wrk2[index][j][k] = *(*float32)(unsafe.Pointer(&v))
+			p[index][j][k] = *(*float32)(unsafe.Pointer(&v))
 			shift += 4
 		}
 	}
