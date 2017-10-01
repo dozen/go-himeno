@@ -19,13 +19,13 @@ const MKMAX = 513
 const SIZE = "LARGE"
 
 var (
-	p               [MIMAX][MJMAX][MKMAX]float32
-	a               [4][MIMAX][MJMAX][MKMAX]float32
-	b               [3][MIMAX][MJMAX][MKMAX]float32
-	c               [3][MIMAX][MJMAX][MKMAX]float32
-	bnd             [MIMAX][MJMAX][MKMAX]float32
-	wrk1            [MIMAX][MJMAX][MKMAX]float32
-	wrk2            [MIMAX][MJMAX][MKMAX]float32
+	p               = [MIMAX][MJMAX][MKMAX]float32{}
+	a               = [4][MIMAX][MJMAX][MKMAX]float32{}
+	b               = [3][MIMAX][MJMAX][MKMAX]float32{}
+	c               = [3][MIMAX][MJMAX][MKMAX]float32{}
+	bnd             = [MIMAX][MJMAX][MKMAX]float32{}
+	wrk1            = [MIMAX][MJMAX][MKMAX]float32{}
+	wrk2            = [MIMAX][MJMAX][MKMAX]float32{}
 	imax            = MIMAX - 1
 	jmax            = MJMAX - 1
 	kmax            = MKMAX - 1
@@ -35,7 +35,15 @@ var (
 	mainJobChan     = make(chan int, MIMAX)
 	gosaChan        = make(chan float32, MIMAX)
 	sumJobChan      = make(chan int, MIMAX)
+	sumDoneChan     = make(chan struct{}, MIMAX)
 	ws              = sync.WaitGroup{}
+
+	payloadSize = (MJMAX - 3) * (MKMAX - 3) * 4
+
+	leftChan      = make(chan byte)
+	leftDoneChan  = make(chan struct{})
+	rightChan     = make(chan byte)
+	rightDoneChan = make(chan struct{})
 )
 
 func init() {
@@ -148,24 +156,40 @@ func initmt() {
 
 func jacobi(nn int) float32 {
 	var gosa float32
+	add := 0
+
+	imax = int(job.Right)
+	left := int(job.Left)
+
+	//右端は -1 する
+	if job.RightNeighbor == "" {
+		imax -= 1
+		add = 1
+	}
+
+	fmt.Println("===========")
+	fmt.Println("imax:", imax)
+	fmt.Println("left:", left)
+	fmt.Println("===========")
 
 	for n := 1; n < nn+1; n++ {
 		gosa = 0.0
 
 		go func() {
-			for i := 1; i < imax-1; i++ {
+			for i := left; i < imax; i++ {
 				mainJobChan <- i
 			}
 		}()
-		for i := 1; i < imax-1; i++ {
+		for i := left + add; i < imax; i++ {
 			gosa += <-gosaChan
 		}
 
-		ws.Add(imax - 2)
-		for i := 1; i < imax-1; i++ {
+		for i := left + add; i < imax; i++ {
 			sumJobChan <- i
 		}
-		ws.Wait()
+		for i := left + add; i < imax; i++ {
+			<-sumDoneChan
+		}
 	}
 
 	return gosa
@@ -203,6 +227,7 @@ func JacobiMainWorker() {
 		var ssxss float32
 		for j := 1; j < jmax-1; j++ {
 			for k := 1; k < kmax-1; k++ {
+				//fmt.Println(i,j,k)
 				var s0, ss float32
 				s0 = a[0][i][j][k]*p[i+1][j][k] +
 					a[1][i][j][k]*p[i][j+1][k] +
@@ -229,12 +254,20 @@ func JacobiSumWorker() {
 	var i int
 	for {
 		i = <-sumJobChan
-
 		for j := 1; j < jmax-1; j++ {
 			for k := 1; k < kmax-1; k++ {
 				p[i][j][k] = wrk2[i][j][k]
 			}
 		}
-		ws.Done()
+		if i == int(job.Left) {
+			fmt.Println("left send!")
+			leftChan <- byte(1)
+			fmt.Println("left sended!")
+		} else if i == int(job.Right) {
+			fmt.Println("Right send!!!")
+			rightChan <- byte(1)
+			fmt.Println("Right sended!!!")
+		}
+		sumDoneChan <- struct{}{}
 	}
 }

@@ -7,10 +7,13 @@ import (
 	"gopkg.in/alecthomas/kingpin.v2"
 	"net"
 	"sync"
+	"unsafe"
 )
 
 const (
 	Protocol = "tcp"
+
+	MsgEnd = 9
 )
 
 var (
@@ -125,11 +128,45 @@ func NeighborClient(addr string, index int, dist string) {
 	}
 
 	// TODO: ClientHandlerでハンドシェイク的なの済ませてから抜けた方がいい気がしてきた
-	go ClientHandler(conn, index, remoteIndex)
+	go ClientHandler(conn, index, remoteIndex, dist)
 }
 
-func ClientHandler(conn *net.TCPConn, local, remote int) {
+func ClientHandler(conn *net.TCPConn, local, remote int, dist string) {
 	//通信で Neighbor に 隣の (remoteの) 配列をもらう処理を書く
+	sig := make(chan byte)
+	if dist == "left" {
+		//左側と通信
+		sig = leftChan
+	} else {
+		//右側と通信
+		sig = rightChan
+	}
+
+	for {
+		b := <-sig
+		_, err := conn.Write([]byte{b})
+		if err != nil && err.Error() != "EOF" {
+			fmt.Println(err)
+			continue
+		}
+
+		payload := make([]byte, payloadSize)
+		parted := make([]byte, payloadSize)
+		for {
+			parted = make([]byte, payloadSize)
+			part, err := conn.Read(parted)
+			payload = append(payload, parted[:part]...)
+			if err != nil && err.Error() != "EOF" {
+				fmt.Println(err)
+				return
+			}
+			if err.Error() == "EOF" {
+				break
+			}
+		}
+		mDeserialize(remote, payload)
+		fmt.Println("受信しました")
+	}
 }
 
 func NeighborServer() {
@@ -170,12 +207,79 @@ func NeighborServer() {
 }
 
 func NCHandler(conn *net.TCPConn) {
+	defer conn.Close()
 	fmt.Println(conn.LocalAddr().String(), ": connected by", conn.RemoteAddr().String())
 
-	reqN := make([]byte, 4)
-	_, err := conn.Read(reqN)
-	if err != nil {
+	index := 0
+	b := make([]byte, 256)
+	bLen, err := conn.Read(b)
+	if err != nil && err.Error() != "EOF" {
 		panic(err)
 	}
+	if string(b[:bLen]) == job.RightNeighbor {
+		index = int(job.Right) + 1
+	} else {
+		index = int(job.Left)
+	}
+	for {
+		b = make([]byte, 10)
+		if _, err := conn.Read(b); err != nil && err.Error() != "EOF" {
+			fmt.Println(err)
+			return
+		}
+		if b[0] == byte(MsgEnd) {
+			return
+		}
+		if _, err := conn.Write(mSerialize(index)); err != nil {
+			fmt.Println(err)
+			return
+		}
+	}
+}
 
+func mSerialize(index int) []byte {
+	// math             math.Float32bits
+	// encoding/binary  binary.PutUint32
+	//多分wrk2でいいかな
+	bjmax := jmax - 1
+	bkmax := kmax - 1
+	j := 1
+	k := 1
+
+	b := make([]byte, payloadSize)
+	shift := 0
+	for ; j < bjmax; j++ {
+		for ; k < bkmax; k++ {
+			v := *(*uint32)(unsafe.Pointer(&wrk2[index][j][k]))
+			b[shift+0] = byte(v >> 24)
+			b[shift+1] = byte(v >> 16)
+			b[shift+2] = byte(v >> 8)
+			b[shift+3] = byte(v)
+			shift += 4
+		}
+	}
+	return b
+}
+
+func mDeserialize(index int, b []byte) {
+	// math             math.Float32frombits
+	// encoding/binary  binary.Uint32
+	//多分wrk2でいいかな
+	bjmax := jmax - 1
+	bkmax := kmax - 1
+	j := 1
+	k := 1
+
+	var v uint32
+	shift := 0
+	for ; j < bjmax; j++ {
+		for ; k < bkmax; k++ {
+			v = uint32(b[shift+3]) |
+				uint32(b[shift+2])<<8 |
+				uint32(b[shift+1])<<16 |
+				uint32(b[shift+0])<<24
+			wrk2[index][j][k] = *(*float32)(unsafe.Pointer(&v))
+			shift += 4
+		}
+	}
 }

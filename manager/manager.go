@@ -233,8 +233,9 @@ func (mc *Manager) setJob() {
 
 	loads := []int{}
 	totalLoad := 0
+	s := Size2MIMAX[mc.Size] - 2
 	for _, node := range mc.Nodes {
-		load := int(node.Score / totalScore * float64(Size2MIMAX[mc.Size]))
+		load := int(node.Score / totalScore * float64(s))
 		loads = append(loads, load)
 		totalLoad += load
 	}
@@ -242,7 +243,7 @@ func (mc *Manager) setJob() {
 	//totalLoadがMIMAXより足りない時がある
 	//同じ数になるまで揃える処理をする
 	for {
-		if totalLoad < Size2MIMAX[mc.Size] {
+		if totalLoad < s {
 			val := 0
 			index := 0
 			for i, load := range loads {
@@ -262,7 +263,7 @@ func (mc *Manager) setJob() {
 
 	//Job作成
 	left := 0
-	right := 0
+	right := 1
 	leftNeighbor := ""
 	rightNeighbor := ""
 	for i, load := range loads {
