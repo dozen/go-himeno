@@ -23,6 +23,8 @@ var (
 
 func init() {
 	kingpin.Parse()
+
+	go NeighborServer()
 }
 
 func join(ctx context.Context, c pb.ManagerClient) {
@@ -58,6 +60,7 @@ func waitKick(ctx context.Context, c pb.ManagerClient) {
 }
 
 func reportTimes(ctx context.Context, c pb.ManagerClient, times int) int {
+	fmt.Println("Suggest Times:", times, "sending...")
 	r, err := c.ReportTimes(ctx, &pb.ReportTimesReq{
 		Addr:  *addr,
 		Times: int64(times),
@@ -65,28 +68,40 @@ func reportTimes(ctx context.Context, c pb.ManagerClient, times int) int {
 	if err != nil {
 		panic(err)
 	}
+	fmt.Println("Send.")
 	return int(r.Times)
 }
 
-func startCommunication() {
-	go NeighborServer()
+func result(ctx context.Context, c pb.ManagerClient, gosa float32, cpu float64) {
+	_, err := c.Result(ctx, &pb.ResultReq{
+		Addr: *addr,
+		Gosa: gosa,
+		Cpu:  cpu,
+	})
+	if err != nil {
+		panic(err)
+	}
+}
 
+func startCommunication() {
 	//ここからクライアント
-	ws := sync.WaitGroup{}
+	clientsWait := sync.WaitGroup{}
 	if job.LeftNeighbor != "" {
+		clientsWait.Add(1)
 		go func() {
 			NeighborClient(job.LeftNeighbor, int(job.Left), "left")
-			ws.Done()
+			clientsWait.Done()
 		}()
 	}
 	if job.RightNeighbor != "" {
+		clientsWait.Add(1)
 		go func() {
 			NeighborClient(job.RightNeighbor, int(job.Right), "right")
-			ws.Done()
+			clientsWait.Done()
 		}()
 	}
 
-	ws.Wait()
+	clientsWait.Wait()
 }
 
 func NeighborClient(addr string, index int, dist string) {
@@ -99,11 +114,13 @@ func NeighborClient(addr string, index int, dist string) {
 
 	host, err := net.ResolveTCPAddr(Protocol, addr)
 	if err != nil {
+		fmt.Print(addr, ": ")
 		panic(err)
 	}
 
 	conn, err := net.DialTCP(Protocol, nil, host)
 	if err != nil {
+		fmt.Print(addr, ": ")
 		panic(err)
 	}
 
@@ -119,20 +136,28 @@ func NeighborServer() {
 	//Serve Neighbor Communication
 	src, err := net.ResolveTCPAddr(Protocol, *addr)
 	if err != nil {
+		fmt.Print(*addr, ": ")
 		fmt.Println("ServeNC resovle TCP addr error.")
 		panic(err)
 	}
 
 	lis, err := net.ListenTCP(Protocol, src)
 	if err != nil {
+		fmt.Print(*addr, ": ")
 		fmt.Println("ServeNC listen TCP error.")
 		panic(err)
 	}
-	defer lis.Close()
+	defer func() {
+		lis.Close()
+		fmt.Println(*addr, ": ServerNC Close.")
+	}()
+	fmt.Print(*addr, ": ")
+	fmt.Println("Listen Start Neighbor Server")
 
 	for {
 		conn, err := lis.AcceptTCP()
 		if err != nil {
+			fmt.Print(*addr, ": ")
 			fmt.Println("ServeNC accept error.")
 			fmt.Println(err)
 			if conn != nil {
@@ -145,5 +170,12 @@ func NeighborServer() {
 }
 
 func NCHandler(conn *net.TCPConn) {
+	fmt.Println(conn.LocalAddr().String(), ": connected by", conn.RemoteAddr().String())
+
+	reqN := make([]byte, 4)
+	_, err := conn.Read(reqN)
+	if err != nil {
+		panic(err)
+	}
 
 }

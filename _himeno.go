@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/dozen/go-himeno/manager"
+	"github.com/dozen/go-himeno/measure"
 	"os"
 	"runtime"
 	"strconv"
@@ -18,21 +19,23 @@ const MKMAX = 513
 const SIZE = "LARGE"
 
 var (
-	p                [MIMAX][MJMAX][MKMAX]float32
-	a                [4][MIMAX][MJMAX][MKMAX]float32
-	b                [3][MIMAX][MJMAX][MKMAX]float32
-	c                [3][MIMAX][MJMAX][MKMAX]float32
-	bnd              [MIMAX][MJMAX][MKMAX]float32
-	wrk1             [MIMAX][MJMAX][MKMAX]float32
-	wrk2             [MIMAX][MJMAX][MKMAX]float32
-	imax, jmax, kmax int
-	omega            = float32(0.8)
-	concurrency      = runtime.NumCPU()
-	copyConcurrency  = concurrency
-	mainJobChan      = make(chan int, MIMAX)
-	gosaChan         = make(chan float32, MIMAX)
-	sumJobChan       = make(chan int, MIMAX)
-	ws               = sync.WaitGroup{}
+	p               [MIMAX][MJMAX][MKMAX]float32
+	a               [4][MIMAX][MJMAX][MKMAX]float32
+	b               [3][MIMAX][MJMAX][MKMAX]float32
+	c               [3][MIMAX][MJMAX][MKMAX]float32
+	bnd             [MIMAX][MJMAX][MKMAX]float32
+	wrk1            [MIMAX][MJMAX][MKMAX]float32
+	wrk2            [MIMAX][MJMAX][MKMAX]float32
+	imax            = MIMAX - 1
+	jmax            = MJMAX - 1
+	kmax            = MKMAX - 1
+	omega           = float32(0.8)
+	concurrency     = runtime.NumCPU()
+	copyConcurrency = concurrency
+	mainJobChan     = make(chan int, MIMAX)
+	gosaChan        = make(chan float32, MIMAX)
+	sumJobChan      = make(chan int, MIMAX)
+	ws              = sync.WaitGroup{}
 )
 
 func init() {
@@ -65,9 +68,6 @@ func main() {
 		gosa                  float32
 		cpu, cpu0, cpu1, flop float64
 		target                = 60.0
-		imax                  = MIMAX - 1
-		jmax                  = MJMAX - 1
-		kmax                  = MKMAX - 1
 	)
 	mngC, mngCloser := manager.ManagerClient(*mngAddr)
 	defer mngCloser()
@@ -81,23 +81,23 @@ func main() {
 	fmt.Printf(" Measure the performance in %d times.\n\n", nn)
 
 	getJob(ctx, mngC) // Jobをもらい、Neighbor との通信を始める
-	fmt.Println("Get Job.")
+	fmt.Println(*addr, ": Get Job.")
 
-	fmt.Println("Waiting Kick....")
+	fmt.Println(*addr, ": Waiting Kick....")
 	waitKick(ctx, mngC) // ここで manager から開始の合図 kick を待つ
-	fmt.Println("Start!")
+	fmt.Println(*addr, ": Start!")
 
 	cpu0 = second()
 	gosa = jacobi(nn)
 	cpu1 = second()
 	cpu = cpu1 - cpu0
 
-	flop = fflop(imax, jmax, kmax)
+	flop = measure.FFlop(SIZE)
 
 	fmt.Printf(" MFLOPS: %f time(s): %f %e\n\n",
 		mflops(nn, cpu, flop), cpu, gosa)
 
-	nn = int(target / (cpu / 3.0))
+	nn = reportTimes(ctx, mngC, int(target/(cpu/3.0)))
 
 	fmt.Printf(" Now, start the actual measurement process.\n")
 	fmt.Printf(" The loop will be excuted in %d times\n", nn)
@@ -112,6 +112,8 @@ func main() {
 	cpu1 = second()
 
 	cpu = cpu1 - cpu0
+
+	result(ctx, mngC, gosa, cpu)
 
 	fmt.Printf(" Loop executed for %d times\n", nn)
 	fmt.Printf(" Gosa : %e \n", gosa)

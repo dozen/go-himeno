@@ -13,6 +13,7 @@ service Manager {
     rpc Job (JobReq) returns (JobRes) {}
     rpc Kick (KickReq) returns (KickRes) {}
     rpc ReportTimes (ReportTimesReq) returns (ReportTimesRes) {}
+    rpc Result (ResultReq) returns (ResultRes) {}
 }
 
 message StatsReq {
@@ -51,6 +52,7 @@ message JoinReq{
 
 message JoinRes{
     bool success = 1;
+    string message = 2;
 }
 
 message JobReq {
@@ -79,4 +81,14 @@ message ReportTimesReq {
 
 message ReportTimesRes {
     int64 times = 1;
+}
+
+message ResultReq {
+    string addr = 1;
+    float gosa = 2;
+    double cpu = 3;
+}
+
+message ResultRes {
+    string message = 1;
 }

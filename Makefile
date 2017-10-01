@@ -35,6 +35,7 @@ build:
 	-e "s/(const *MKMAX).*$$/\1 = $(MKMAX)/" \
 	$(SRC) > $(DIST)
 	go build
+	rm $(DIST)
 
 .PHONY: mng
 mng:

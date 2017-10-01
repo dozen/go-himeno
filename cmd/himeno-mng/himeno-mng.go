@@ -8,6 +8,7 @@ import (
 	"github.com/k0kubun/pp"
 	"google.golang.org/grpc"
 	"gopkg.in/alecthomas/kingpin.v2"
+	"os"
 )
 
 var (
@@ -61,18 +62,19 @@ func stats(c pb.ManagerClient) {
 	}
 
 	pp.Println(r.NodeList)
-	//for _, node := range r.NodeList {
-	//	fmt.Printf("%v { score:%v } : %+v\n", node.Address, node.Score, node.Job)
-	//}
 }
 
 func start(c pb.ManagerClient) {
 	c, closer := manager.ManagerClient(*host)
 	defer closer()
 	ctx := context.Background()
-	_, err := c.Start(ctx, &pb.StartReq{})
+	r, err := c.Start(ctx, &pb.StartReq{})
 	if err != nil {
 		panic(err)
+	}
+	if r.String() != "" {
+		fmt.Println(r.String())
+		os.Exit(1)
 	}
 
 	fmt.Println("start.")

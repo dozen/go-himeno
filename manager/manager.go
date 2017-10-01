@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	pb "github.com/dozen/go-himeno/manager/proto"
+	"github.com/dozen/go-himeno/measure"
 	"github.com/k0kubun/pp"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
@@ -15,6 +16,11 @@ const (
 	Protocol = "tcp"
 	MngPort  = "22122"
 	MngAddr  = "0.0.0.0:" + MngPort
+
+	StateJoin   = 0
+	StateStart  = 1
+	StateKick   = 2
+	StateReport = 3
 )
 
 var (
@@ -27,13 +33,32 @@ var (
 	}
 )
 
+type Result struct {
+	Addr   string
+	Gosa   float32
+	CPU    float64
+	MFlops float64
+}
+
 type Manager struct {
 	Size      string
 	Nodes     []*pb.Node
 	NodesLock sync.RWMutex
-	KickCount sync.WaitGroup
-	StartCond *sync.Cond
-	KillCond  *sync.Cond
+
+	State  int
+	StateL sync.RWMutex
+	Times  int //何回やるか
+	TimesL sync.RWMutex
+
+	StartCond   *sync.Cond
+	KickCount   sync.WaitGroup
+	ReportCount sync.WaitGroup
+	KillCond    *sync.Cond
+
+	Results        []Result
+	ResultCount    sync.WaitGroup
+	ResultsL       sync.RWMutex
+	CalcResultOnce sync.Once
 }
 
 func (mc *Manager) Stats(ctx context.Context, req *pb.StatsReq) (*pb.StatsRes, error) {
@@ -47,7 +72,20 @@ func (mc *Manager) Start(ctx context.Context, req *pb.StartReq) (*pb.StartRes, e
 	//for CLI
 	//Joinを締め切ってJobの割り当てを行う
 	res := pb.StartRes{}
-	//jobの振り分けを実装
+	if len(mc.Nodes) < 1 {
+		res.Status = "No Nodes."
+		return &res, nil
+	}
+
+	mc.StateL.Lock()
+	if mc.State >= StateStart {
+		res.Status = "already started."
+		mc.StateL.Unlock()
+		return &res, nil
+	}
+	mc.State = StateStart
+	mc.StateL.Unlock()
+
 	mc.setJob()
 	mc.StartCond.Broadcast() //Job送ってもいいようにする
 	return &res, nil
@@ -63,6 +101,15 @@ func (mc *Manager) Join(ctx context.Context, req *pb.JoinReq) (*pb.JoinRes, erro
 	//for Worker
 	//score と linkspeed を申告して参加
 	res := pb.JoinRes{}
+
+	mc.StateL.RLock()
+	if mc.State != StateJoin {
+		res.Success = false
+		res.Message = "Join State was end."
+		mc.StateL.RUnlock()
+		return &res, nil
+	}
+	mc.StateL.RUnlock()
 
 	newNode := &pb.Node{
 		Status:    "ok",
@@ -84,6 +131,8 @@ func (mc *Manager) Join(ctx context.Context, req *pb.JoinReq) (*pb.JoinRes, erro
 	if isNewNode {
 		mc.Nodes = append(mc.Nodes, newNode)
 		mc.KickCount.Add(1)
+		mc.ReportCount.Add(1)
+		mc.ResultCount.Add(1)
 
 		fmt.Println("New node added.")
 	}
@@ -122,9 +171,58 @@ func (mc *Manager) Kick(ctx context.Context, req *pb.KickReq) (*pb.KickRes, erro
 }
 
 func (mc *Manager) ReportTimes(ctx context.Context, req *pb.ReportTimesReq) (*pb.ReportTimesRes, error) {
+	//何回やるかをノード間で揃える
+	//だいたい同じ数になるから最後にセットした値をそのまま使う
 	res := pb.ReportTimesRes{}
+	mc.TimesL.Lock()
+	mc.Times = int(req.Times)
+	mc.TimesL.Unlock()
 
+	mc.ReportCount.Done()
+	mc.ReportCount.Wait()
+
+	//全部終わったら
+	mc.TimesL.RLock()
+	res.Times = int64(mc.Times)
+	mc.TimesL.RUnlock()
 	return &res, nil
+}
+
+func (mc *Manager) Result(ctx context.Context, req *pb.ResultReq) (*pb.ResultRes, error) {
+	res := pb.ResultRes{}
+
+	mc.ResultsL.Lock()
+	mc.Results = append(mc.Results, Result{Addr: req.Addr, Gosa: req.Gosa, CPU: req.Cpu})
+	mc.ResultsL.Unlock()
+	mc.ResultCount.Done()
+	mc.ResultCount.Wait()
+	mc.CalcResultOnce.Do(mc.calcResult)
+	return &res, nil
+}
+
+func (mc *Manager) calcResult() {
+	var (
+		mfNode = mc.Results[0]
+		msNode = mc.Results[0]
+		gosa   float32
+	)
+	for _, v := range mc.Results {
+		if mfNode.CPU < v.CPU {
+			mfNode = v
+		}
+		if msNode.CPU > v.CPU {
+			msNode = v
+		}
+		gosa += v.Gosa
+	}
+	mfNode.MFlops = measure.MFlops(mc.Times, mfNode.CPU, mc.Size)
+	msNode.MFlops = measure.MFlops(mc.Times, msNode.CPU, mc.Size)
+	fmt.Println("===== END =====")
+	fmt.Println("GOSA:", gosa)
+	fmt.Println("Fastest Node")
+	pp.Println(mfNode)
+	fmt.Println("Slowest Node")
+	pp.Println(msNode)
 }
 
 func (mc *Manager) setJob() {
@@ -153,6 +251,8 @@ func (mc *Manager) setJob() {
 					index = i
 				}
 			}
+			fmt.Println("index:", index)
+			fmt.Printf("%#v\n", loads)
 			loads[index]++
 			totalLoad++
 		} else {
