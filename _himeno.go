@@ -258,15 +258,11 @@ func JacobiSumWorker() {
 			}
 		}
 		if i == int(job.Left) && job.LeftNeighbor != "" {
-			fmt.Println("left", i, " send!")
 			leftChan <- byte(1)
 			<-leftDoneChan
-			fmt.Println("left sended!")
 		} else if i == int(job.Right) && job.RightNeighbor != "" {
-			fmt.Println("right", i, " send!!!")
 			rightChan <- byte(1)
 			<-rightDoneChan
-			fmt.Println("right sended!!!")
 		}
 		sumDoneChan <- struct{}{}
 	}

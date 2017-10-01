@@ -162,26 +162,21 @@ func ClientHandler(conn *net.TCPConn, local, remote int, dist string) {
 		total := 0
 		payload := make([]byte, payloadSize)
 		parted := make([]byte, payloadSize)
-		fmt.Println("payloadSize:", payloadSize)
 		for {
-			fmt.Println("Client: receiving...")
 			parted = make([]byte, payloadSize)
 			part, err := conn.Read(parted)
 			total += part
 			payload = append(payload, parted[:part]...)
-			fmt.Println("part:", part)
 			if err != nil && err.Error() != "EOF" {
 				fmt.Println("Client:", err)
 				return
 			}
 			if err != nil && err.Error() == "EOF" || total >= payloadSize {
-				fmt.Println("Client: 受信完了")
 				break
 			}
 		}
 		mDeserialize(remote, payload)
 		endSig <- struct{}{}
-		fmt.Println("受信しました")
 	}
 }
 
