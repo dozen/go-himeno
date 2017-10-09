@@ -1,7 +1,10 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"github.com/dozen/go-himeno/manager"
+	"github.com/dozen/go-himeno/measure"
 	"os"
 	"runtime"
 	"strconv"
@@ -10,26 +13,45 @@ import (
 )
 
 //プリプロセス
-const MIMAX = 0
-const MJMAX = 0
-const MKMAX = 0
+const MIMAX = 257
+const MJMAX = 257
+const MKMAX = 513
+const SIZE = "LARGE"
 
 var (
-	p                [MIMAX][MJMAX][MKMAX]float32
-	a                [4][MIMAX][MJMAX][MKMAX]float32
-	b                [3][MIMAX][MJMAX][MKMAX]float32
-	c                [3][MIMAX][MJMAX][MKMAX]float32
-	bnd              [MIMAX][MJMAX][MKMAX]float32
-	wrk1             [MIMAX][MJMAX][MKMAX]float32
-	wrk2             [MIMAX][MJMAX][MKMAX]float32
-	imax, jmax, kmax int
-	omega            float32
-	concurrency      = runtime.NumCPU()
-	copyConcurrency  = concurrency
-	mainJobChan      = make(chan int, MIMAX)
-	gosaChan         = make(chan float32, MIMAX)
-	sumJobChan       = make(chan int, MIMAX)
-	ws               = sync.WaitGroup{}
+	p               = [MIMAX][MJMAX][MKMAX]float32{}
+	a               = [4][MIMAX][MJMAX][MKMAX]float32{}
+	b               = [3][MIMAX][MJMAX][MKMAX]float32{}
+	c               = [3][MIMAX][MJMAX][MKMAX]float32{}
+	bnd             = [MIMAX][MJMAX][MKMAX]float32{}
+	wrk1            = [MIMAX][MJMAX][MKMAX]float32{}
+	wrk2            = [MIMAX][MJMAX][MKMAX]float32{}
+	imax            = MIMAX - 1
+	jmax            = MJMAX - 1
+	kmax            = MKMAX - 1
+	omega           = float32(0.8)
+	concurrency     = runtime.NumCPU()
+	copyConcurrency = concurrency
+	mainJobChan     = make(chan int, MIMAX)
+	gosaChan        = make(chan float32, MIMAX)
+	sumJobChan      = make(chan int, MIMAX)
+	sumDoneChan     = make(chan struct{}, MIMAX)
+	ws              = sync.WaitGroup{}
+
+	payloadSize = (MJMAX - 3) * (MKMAX - 3) * 4
+
+	leftChan      = make(chan byte)
+	leftDoneChan  = make(chan struct{})
+	leftRecvLock  = make(chan struct{}, 1)
+	leftBuf      *[]byte
+	rightChan     = make(chan byte)
+	rightDoneChan = make(chan struct{})
+	rightRecvLock = make(chan struct{}, 1)
+	rightBuf      *[]byte
+
+
+	allowAckLeftChan = make(chan struct{})
+	allowAckRightChan = make(chan struct{})
 )
 
 func init() {
@@ -52,39 +74,46 @@ func init() {
 	for i := 0; i < copyConcurrency; i++ {
 		go JacobiSumWorker()
 	}
+
+	initmt() //配列初期化
 }
 
 func main() {
 	var (
-		nn                    int
+		nn                    = 3 //最初は3回回す
 		gosa                  float32
 		cpu, cpu0, cpu1, flop float64
 		target                = 60.0
 	)
-	imax = MIMAX - 1
-	jmax = MJMAX - 1
-	kmax = MKMAX - 1
-	omega = 0.8
+	mngC, mngCloser := manager.ManagerClient(*mngAddr)
+	defer mngCloser()
 
-	initmt()
+	ctx := context.Background()
+	join(ctx, mngC)
+
 	fmt.Printf("mimax = %d mjmax = %d mkmax = %d\n", MIMAX, MJMAX, MKMAX)
 	fmt.Printf("imax = %d jmax = %d kmax =%d\n", imax, jmax, kmax)
-
-	nn = 3
 	fmt.Printf(" Start rehearsal measurement process.\n")
 	fmt.Printf(" Measure the performance in %d times.\n\n", nn)
+
+	getJob(ctx, mngC) // Jobをもらい、Neighbor との通信を始める
+	fmt.Println(*addr, ": Get Job.")
+
+	fmt.Println(*addr, ": Waiting Kick....")
+	waitKick(ctx, mngC) // ここで manager から開始の合図 kick を待つ
+	fmt.Println(*addr, ": Start!")
 
 	cpu0 = second()
 	gosa = jacobi(nn)
 	cpu1 = second()
 	cpu = cpu1 - cpu0
 
-	flop = fflop(imax, jmax, kmax)
+	flop = measure.FFlop(SIZE)
 
 	fmt.Printf(" MFLOPS: %f time(s): %f %e\n\n",
 		mflops(nn, cpu, flop), cpu, gosa)
 
-	nn = int(target / (cpu / 3.0))
+	nn = reportTimes(ctx, mngC, int(target/(cpu/3.0)))
 
 	fmt.Printf(" Now, start the actual measurement process.\n")
 	fmt.Printf(" The loop will be excuted in %d times\n", nn)
@@ -99,6 +128,8 @@ func main() {
 	cpu1 = second()
 
 	cpu = cpu1 - cpu0
+
+	result(ctx, mngC, gosa, cpu)
 
 	fmt.Printf(" Loop executed for %d times\n", nn)
 	fmt.Printf(" Gosa : %e \n", gosa)
@@ -134,23 +165,79 @@ func initmt() {
 func jacobi(nn int) float32 {
 	var gosa float32
 
+	right := int(job.Right) + 1
+	left := int(job.Left)
+
+	//右端は -1 する
+	if job.RightNeighbor == "" {
+		right -= 1
+	}
+
+	fmt.Println("===========")
+	fmt.Println("imax:", imax)
+	fmt.Println("left:", left)
+	fmt.Println("===========")
+
 	for n := 1; n < nn+1; n++ {
+		fmt.Println("n:",n)
+		if n != 1 {
+			if job.RightNeighbor != "" {
+				<-rightRecvLock
+				mDeserialize(int(job.Right) + 1, *rightBuf)
+			}
+			if job.LeftNeighbor != "" {
+				<-leftRecvLock
+				mDeserialize(int(job.Left) - 1, *leftBuf)
+			}
+		}
+
 		gosa = 0.0
 
 		go func() {
-			for i := 1; i < imax-1; i++ {
+			for i := left; i < right; i++ {
 				mainJobChan <- i
 			}
 		}()
-		for i := 1; i < imax-1; i++ {
+		for i := left; i < right; i++ {
 			gosa += <-gosaChan
 		}
 
-		ws.Add(imax - 2)
-		for i := 1; i < imax-1; i++ {
+		fmt.Println("Jacobi Done")
+
+		if job.LeftNeighbor != "" {
+			go func() {
+				allowAckLeftChan <- struct{}{}
+			}()
+		}
+		if job.RightNeighbor != "" {
+			go func() {
+				allowAckRightChan <- struct{}{}
+			}()
+		}
+
+		for i := left; i < right; i++ {
 			sumJobChan <- i
 		}
-		ws.Wait()
+		for i := left; i < right; i++ {
+			<-sumDoneChan
+		}
+
+		if job.LeftNeighbor != "" {
+			go func() {
+				leftChan <- byte(1)
+			}()
+		}
+		if job.RightNeighbor != "" {
+			go func() {
+				rightChan <- byte(1)
+			}()
+		}
+		if job.LeftNeighbor != "" {
+			<-leftDoneChan
+		}
+		if job.RightNeighbor != "" {
+			<-rightDoneChan
+		}
 	}
 
 	return gosa
@@ -188,6 +275,7 @@ func JacobiMainWorker() {
 		var ssxss float32
 		for j := 1; j < jmax-1; j++ {
 			for k := 1; k < kmax-1; k++ {
+				//fmt.Println(i,j,k)
 				var s0, ss float32
 				s0 = a[0][i][j][k]*p[i+1][j][k] +
 					a[1][i][j][k]*p[i][j+1][k] +
@@ -214,12 +302,11 @@ func JacobiSumWorker() {
 	var i int
 	for {
 		i = <-sumJobChan
-
 		for j := 1; j < jmax-1; j++ {
 			for k := 1; k < kmax-1; k++ {
 				p[i][j][k] = wrk2[i][j][k]
 			}
 		}
-		ws.Done()
+		sumDoneChan <- struct{}{}
 	}
 }

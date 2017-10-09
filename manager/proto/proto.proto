@@ -1,0 +1,94 @@
+syntax = "proto3";
+
+package manager;
+
+service Manager {
+    //for CLI
+    rpc Stats (StatsReq) returns (StatsRes) {}
+    rpc Start (StartReq) returns (StartRes) {}
+    rpc Kill (KillReq) returns (KillRes) {}
+
+    //for Worker
+    rpc Join (JoinReq) returns (JoinRes) {}
+    rpc Job (JobReq) returns (JobRes) {}
+    rpc Kick (KickReq) returns (KickRes) {}
+    rpc ReportTimes (ReportTimesReq) returns (ReportTimesRes) {}
+    rpc Result (ResultReq) returns (ResultRes) {}
+}
+
+message StatsReq {
+}
+
+message StatsRes {
+    repeated Node nodeList = 1;
+}
+
+message Node {
+    string status = 1;
+    string address = 2;
+    double score = 3;
+    int64 link_speed = 4;
+    JobRes job = 5;
+}
+
+message StartReq {
+}
+
+message StartRes {
+    string status = 1;
+}
+
+message KillReq {
+}
+
+message KillRes {
+}
+
+message JoinReq{
+    string addr = 1;
+    double score = 2;
+    int64 link_speed = 3;
+}
+
+message JoinRes{
+    bool success = 1;
+    string message = 2;
+}
+
+message JobReq {
+    string addr = 1;
+}
+
+message JobRes {
+    string size = 1;
+    int64 left = 2;
+    int64 right = 3;
+    string left_neighbor = 4;
+    string right_neighbor = 5;
+}
+
+message KickReq {
+    string addr = 1;
+}
+
+message KickRes {
+}
+
+message ReportTimesReq {
+    string addr = 1;
+    int64 times = 2;
+}
+
+message ReportTimesRes {
+    int64 times = 1;
+}
+
+message ResultReq {
+    string addr = 1;
+    float gosa = 2;
+    double cpu = 3;
+}
+
+message ResultRes {
+    string message = 1;
+}
