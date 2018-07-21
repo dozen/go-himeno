@@ -5,11 +5,10 @@
 ```
 git clone github.com/dozen/go-himeno
 cd go-himeno
-make SIZE=MIDDLE
+go build -tags middle
 ```
 
-SIZE: [SSMALL, SMALL, MIDDLE, LARGE, ELARGE]
-
+SIZE: [ssmall, small, middle, large, elarge]
 
 ### run
 
