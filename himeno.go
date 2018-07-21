@@ -7,28 +7,25 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/dozen/go-himeno/size"
 )
 
-//プリプロセス
-const MIMAX = 0
-const MJMAX = 0
-const MKMAX = 0
-
 var (
-	p                [MIMAX][MJMAX][MKMAX]float32
-	a                [4][MIMAX][MJMAX][MKMAX]float32
-	b                [3][MIMAX][MJMAX][MKMAX]float32
-	c                [3][MIMAX][MJMAX][MKMAX]float32
-	bnd              [MIMAX][MJMAX][MKMAX]float32
-	wrk1             [MIMAX][MJMAX][MKMAX]float32
-	wrk2             [MIMAX][MJMAX][MKMAX]float32
+	p                [size.MIMAX][size.MJMAX][size.MKMAX]float32
+	a                [4][size.MIMAX][size.MJMAX][size.MKMAX]float32
+	b                [3][size.MIMAX][size.MJMAX][size.MKMAX]float32
+	c                [3][size.MIMAX][size.MJMAX][size.MKMAX]float32
+	bnd              [size.MIMAX][size.MJMAX][size.MKMAX]float32
+	wrk1             [size.MIMAX][size.MJMAX][size.MKMAX]float32
+	wrk2             [size.MIMAX][size.MJMAX][size.MKMAX]float32
 	imax, jmax, kmax int
 	omega            float32
 	concurrency      = runtime.NumCPU()
 	copyConcurrency  = concurrency
-	mainJobChan      = make(chan int, MIMAX)
-	gosaChan         = make(chan float32, MIMAX)
-	sumJobChan       = make(chan int, MIMAX)
+	mainJobChan      = make(chan int, size.MIMAX)
+	gosaChan         = make(chan float32, size.MIMAX)
+	sumJobChan       = make(chan int, size.MIMAX)
 	ws               = sync.WaitGroup{}
 )
 
@@ -61,13 +58,13 @@ func main() {
 		cpu, cpu0, cpu1, flop float64
 		target                = 60.0
 	)
-	imax = MIMAX - 1
-	jmax = MJMAX - 1
-	kmax = MKMAX - 1
+	imax = size.MIMAX - 1
+	jmax = size.MJMAX - 1
+	kmax = size.MKMAX - 1
 	omega = 0.8
 
 	initmt()
-	fmt.Printf("mimax = %d mjmax = %d mkmax = %d\n", MIMAX, MJMAX, MKMAX)
+	fmt.Printf("mimax = %d mjmax = %d mkmax = %d\n", size.MIMAX, size.MJMAX, size.MKMAX)
 	fmt.Printf("imax = %d jmax = %d kmax =%d\n", imax, jmax, kmax)
 
 	nn = 3
